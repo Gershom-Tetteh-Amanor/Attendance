@@ -1,0 +1,2012 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <meta name="description" content="Smart QR code attendance tracking for universities"/>
+  <meta name="keywords" content="QR attendance, university, lecturer, student check-in"/>
+  <title>QR Attendance System</title>
+  <link rel="manifest" href="manifest.json"/>
+  <meta name="theme-color" content="#534ab7"/>
+
+  <!-- Firebase 9 compat (CDN) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <!-- QR Code generator -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <style>
+/* ─── RESET ─────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#f5f4f0;color:#1a1a18;min-height:100vh}
+
+/* ─── VIEWS ──────────────────────────────────── */
+.view{display:none;min-height:100vh}
+.view.active{display:block}
+.view.center.active{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px}
+
+/* ─── TOPBAR ─────────────────────────────────── */
+.topbar{display:flex;align-items:center;gap:10px;padding:13px 24px;background:#fff;border-bottom:1px solid #e5e3da;position:sticky;top:0;z-index:200}
+.topbar-icon{font-size:20px;flex-shrink:0}
+.topbar-title{font-size:15px;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topbar-user{font-size:13px;color:#888;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rpill{font-size:11px;font-weight:500;padding:3px 10px;border-radius:20px;white-space:nowrap}
+.rpill.lec{background:#f0effe;color:#534ab7;border:1px solid #afa9ec}
+.rpill.stu{background:#e1f5ee;color:#0f6e56;border:1px solid #5dcaa5}
+.rpill.adm{background:#faeeda;color:#633806;border:1px solid #ef9f27}
+.topbar-btn{font-size:12px;color:#888;background:none;border:none;cursor:pointer;padding:5px 10px;border-radius:6px;white-space:nowrap}
+.topbar-btn:hover{background:#f1efe8;color:#333}
+
+/* ─── TABS ───────────────────────────────────── */
+.tabs{display:flex;background:#fff;border-bottom:1px solid #e5e3da;padding:0 20px;overflow-x:auto}
+.tab{padding:12px 14px;font-size:14px;font-weight:500;color:#888;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;flex-shrink:0;transition:color .15s}
+.tab:hover{color:#444}
+.tab.active{color:#534ab7;border-bottom-color:#534ab7}
+.tab-page{display:none}
+.tab-page.active{display:block}
+
+/* ─── PAGE BODY ──────────────────────────────── */
+.pg{max-width:660px;margin:0 auto;padding:32px 20px}
+@media(max-width:500px){.pg{padding:20px 14px}}
+
+/* ─── TYPOGRAPHY ─────────────────────────────── */
+h2{font-size:21px;font-weight:500;margin-bottom:5px}
+h3{font-size:15px;font-weight:500;margin-bottom:8px}
+.sub{font-size:14px;color:#666;margin-bottom:24px;line-height:1.6}
+
+/* ─── AUTH CARD ──────────────────────────────── */
+.auth-card{background:#fff;border:1px solid #e5e3da;border-radius:16px;padding:36px 38px;width:100%;max-width:430px}
+@media(max-width:480px){.auth-card{padding:26px 18px}}
+.auth-logo{font-size:40px;text-align:center;margin-bottom:12px}
+.auth-title{font-size:20px;font-weight:500;text-align:center;margin-bottom:4px}
+.auth-sub{font-size:13px;color:#888;text-align:center;margin-bottom:24px;line-height:1.5}
+.auth-link{font-size:13px;text-align:center;margin-top:14px;color:#666}
+.auth-link a{color:#534ab7;cursor:pointer;font-weight:500;text-decoration:none}
+.auth-link a:hover{text-decoration:underline}
+
+/* ─── FORMS ──────────────────────────────────── */
+.field{margin-bottom:13px}
+label{display:block;font-size:13px;font-weight:500;margin-bottom:4px;color:#444}
+input,select{width:100%;padding:10px 12px;border:1px solid #d5d3ca;border-radius:8px;font-size:14px;background:#fff;color:#1a1a18;transition:border-color .15s}
+input:focus,select:focus{outline:none;border-color:#7f77dd;box-shadow:0 0 0 3px rgba(83,74,183,.07)}
+input.err{border-color:#e24b4a!important;background:#fff8f8}
+input[readonly]{background:#f5f4f0;color:#888}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:460px){.two-col{grid-template-columns:1fr}}
+.pass-wrap{position:relative}
+.pass-wrap input{padding-right:40px}
+.eye{position:absolute;right:11px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:15px;color:#aaa;line-height:1}
+
+/* ─── SLIDER ─────────────────────────────────── */
+.sl-row{display:flex;align-items:center;gap:10px;margin-bottom:13px}
+.sl-row>label{margin:0;white-space:nowrap;font-size:13px;font-weight:500;color:#444;min-width:64px}
+.sl-row input[type=range]{flex:1;accent-color:#7f77dd}
+.sval{font-size:13px;color:#7f77dd;font-weight:500;min-width:58px;text-align:right}
+
+/* ─── TOGGLE ─────────────────────────────────── */
+.tog-wrap{display:flex;align-items:center;gap:10px;margin-bottom:13px;cursor:pointer;user-select:none}
+.tog-wrap>label{font-size:13px;font-weight:500;color:#444;margin:0;cursor:pointer}
+.tog{position:relative;width:36px;height:20px;background:#d5d3ca;border-radius:10px;transition:background .2s;flex-shrink:0}
+.tog.on{background:#534ab7}
+.tok{position:absolute;top:3px;left:3px;width:14px;height:14px;background:#fff;border-radius:50%;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.tog.on .tok{transform:translateX(16px)}
+
+/* ─── BUTTONS ────────────────────────────────── */
+.btn{display:block;width:100%;padding:11px;border:none;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;transition:opacity .15s;text-align:center;line-height:1.3}
+.btn:hover:not(:disabled){opacity:.87}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-primary{background:#534ab7;color:#fff}
+.btn-danger{background:#e24b4a;color:#fff}
+.btn-secondary{background:#e8e6f0;color:#534ab7}
+.btn-teal{background:#1d9e75;color:#fff}
+.btn-amber{background:#ba7517;color:#fff}
+.btn-dark{background:#1a1a18;color:#fff}
+.btn-sm{padding:6px 13px;font-size:12px;width:auto;display:inline-block;border-radius:6px}
+.row-btns{display:flex;gap:10px;margin-bottom:12px}
+.row-btns>.btn{flex:1}
+
+/* ─── STRIPS / ALERTS ────────────────────────── */
+.strip{border-radius:10px;padding:13px 15px;margin-bottom:14px;font-size:13px;line-height:1.8}
+.strip.purple{background:#f0effe;border:1px solid #afa9ec}.strip.purple strong{color:#3c3489}
+.strip.teal  {background:#e1f5ee;border:1px solid #5dcaa5}.strip.teal   strong{color:#085041}
+.strip.gray  {background:#f1efe8;border:1px solid #d3d1c7}.strip.gray   strong{color:#5f5e5a}
+.strip.amber {background:#faeeda;border:1px solid #ef9f27}.strip.amber  strong{color:#633806}
+.strip.green {background:#eaf3de;border:1px solid #97c459}.strip.green  strong{color:#3b6d11}
+.strip.red   {background:#fcebeb;border:1px solid #f09595}.strip.red    strong{color:#791f1f}
+.alert{border-radius:8px;padding:10px 13px;font-size:13px;margin-bottom:13px;display:none;line-height:1.5}
+.alert.show{display:block}
+.alert.err {background:#fcebeb;border:1px solid #f09595;color:#791f1f}
+.alert.ok  {background:#eaf3de;border:1px solid #97c459;color:#3b6d11}
+.alert.warn{background:#faeeda;border:1px solid #ef9f27;color:#633806}
+.alert.info{background:#f0effe;border:1px solid #afa9ec;color:#3c3489}
+
+/* ─── BADGES / PILLS ─────────────────────────── */
+.sec-pills{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.spill{font-size:11px;font-weight:500;padding:3px 8px;border-radius:20px}
+.spill.on {background:#eaf3de;color:#3b6d11;border:1px solid #c0dd97}
+.spill.off{background:#f1efe8;color:#888;border:1px solid #d3d1c7}
+.badge    {background:#534ab7;color:#fff;font-size:11px;font-weight:500;padding:2px 8px;border-radius:20px;display:inline-block}
+.badge-red{background:#e24b4a;color:#fff;font-size:11px;font-weight:500;padding:2px 8px;border-radius:20px;display:inline-block}
+.pill{font-size:11px;padding:2px 7px;border-radius:12px;white-space:nowrap;display:inline-block}
+.pill.green{background:#eaf3de;color:#3b6d11}
+.pill.gray {background:#f1efe8;color:#888}
+.pill.red  {background:#fcebeb;color:#791f1f}
+.pill.amber{background:#faeeda;color:#633806}
+.pill.blue {background:#e6f1fb;color:#0c447c}
+
+/* ─── QR AREA ────────────────────────────────── */
+.qr-wrap{text-align:center;margin:20px 0 14px}
+#qr-box{display:inline-block;background:#fff;padding:18px;border-radius:14px;border:1px solid #e5e3da}
+#qr-box canvas,#qr-box img{display:block}
+.qr-btns{display:flex;justify-content:center;gap:8px;margin-top:10px;flex-wrap:wrap}
+.countdown{font-size:15px;font-weight:500;margin-top:8px}
+.countdown.ok  {color:#3b6d11}
+.countdown.warn{color:#ba7517}
+.countdown.exp {color:#a32d2d}
+
+/* ─── LIST ITEMS ─────────────────────────────── */
+.list-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.att-item{display:flex;align-items:center;gap:6px;padding:9px 12px;background:#fff;border:1px solid #e5e3da;border-radius:8px;margin-bottom:5px;font-size:13px;flex-wrap:wrap}
+.att-dot{width:8px;height:8px;border-radius:50%;background:#639922;flex-shrink:0}
+.att-name{font-weight:500;flex:1;min-width:110px}
+.att-sid{color:#888;font-size:12px;font-family:monospace}
+.att-time{font-size:12px;color:#aaa;margin-left:auto}
+.att-empty{text-align:center;color:#aaa;font-size:14px;padding:30px 0}
+.blk-item{display:flex;align-items:flex-start;gap:8px;padding:8px 12px;background:#fff8f8;border:1px solid #f7c1c1;border-radius:8px;margin-bottom:4px;font-size:12px;color:#791f1f}
+.blk-item>span:first-child{flex:1;min-width:0;word-break:break-word}
+.divider{border:none;border-top:1px solid #e5e3da;margin:20px 0}
+
+/* ─── SESSION CARDS ──────────────────────────── */
+.sess-card{background:#fff;border:1px solid #e5e3da;border-radius:10px;padding:14px;margin-bottom:12px}
+.sc-hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}
+.sc-title{font-size:15px;font-weight:500}
+.sc-meta{font-size:12px;color:#888;margin-top:3px;line-height:1.6}
+.sc-actions{display:flex;gap:6px;flex-shrink:0}
+.rec-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid #f1efe8;font-size:13px}
+.rec-name{flex:1;min-width:100px}
+.rec-sid{font-size:12px;color:#888;font-family:monospace}
+.rec-time{font-size:12px;color:#aaa;white-space:nowrap;margin-left:auto}
+.no-rec{text-align:center;color:#aaa;font-size:14px;padding:40px 0}
+
+/* ─── ADMIN TABLE ────────────────────────────── */
+.tbl-wrap{overflow-x:auto;border-radius:8px;border:1px solid #e5e3da}
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{text-align:left;padding:8px 11px;background:#f5f4f0;border-bottom:2px solid #e5e3da;font-size:12px;font-weight:500;color:#666;white-space:nowrap}
+.tbl td{padding:8px 11px;border-bottom:1px solid #f1efe8;vertical-align:middle}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:#fafaf8}
+.paginator{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:#666;flex-wrap:wrap}
+.paginator button{padding:5px 11px;font-size:12px;background:#fff;border:1px solid #d5d3ca;border-radius:6px;cursor:pointer}
+.paginator button:disabled{opacity:.4;cursor:not-allowed}
+
+/* ─── LANDING ────────────────────────────────── */
+.land-logo{font-size:52px;margin-bottom:14px}
+.land-title{font-size:27px;font-weight:500;margin-bottom:6px;text-align:center}
+.land-sub{font-size:15px;color:#888;margin-bottom:44px;text-align:center}
+.role-cards{display:flex;gap:16px;flex-wrap:wrap;justify-content:center}
+.role-card{background:#fff;border:1px solid #e5e3da;border-radius:16px;padding:28px 34px;text-align:center;cursor:pointer;width:185px;transition:border-color .2s,box-shadow .2s}
+.role-card:hover{border-color:#7f77dd;box-shadow:0 6px 22px rgba(83,74,183,.12)}
+.role-icon{font-size:38px;margin-bottom:10px}
+.role-name{font-size:16px;font-weight:500;margin-bottom:5px}
+.role-desc{font-size:12px;color:#888;line-height:1.5}
+
+/* ─── DEMO MODE BANNER ───────────────────────── */
+.demo-bar{background:#faeeda;border-bottom:2px solid #ef9f27;padding:10px 20px;font-size:13px;color:#633806;text-align:center;display:none}
+.demo-bar.show{display:block}
+
+/* ─── OFFLINE BANNER ─────────────────────────── */
+.offline-bar{display:none;background:#fcebeb;border-bottom:1px solid #f09595;padding:8px 20px;font-size:13px;color:#791f1f;text-align:center;position:sticky;top:0;z-index:300}
+.offline-bar.show{display:block}
+
+/* ─── LECTURER ID BOX ────────────────────────── */
+.lecid-box{background:linear-gradient(135deg,#534ab7,#7f77dd);color:#fff;border-radius:10px;padding:14px 18px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.lecid-lbl{font-size:11px;opacity:.8;margin-bottom:3px}
+.lecid-val{font-size:22px;font-weight:600;font-family:monospace;letter-spacing:.06em}
+
+/* ─── OTP DISPLAY ────────────────────────────── */
+.otp-display{background:#1a1a18;color:#fff;border-radius:10px;padding:18px;text-align:center;margin:12px 0}
+.otp-label{font-size:12px;opacity:.7;margin-bottom:8px}
+.otp-code{font-size:36px;font-weight:700;font-family:monospace;letter-spacing:.2em;color:#5dcaa5}
+.otp-expiry{font-size:11px;opacity:.6;margin-top:8px}
+
+/* ─── SPINNER ────────────────────────────────── */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* ─── STUDENT STATES ─────────────────────────── */
+.state-blk{display:none;text-align:center;padding:70px 20px}
+.state-blk.show{display:block}
+.state-icon{font-size:54px;margin-bottom:14px}
+.state-title{font-size:21px;font-weight:500;margin-bottom:8px}
+.state-msg{font-size:14px;color:#888;line-height:1.7;max-width:340px;margin:0 auto}
+.stu-sess{background:#fff;border:1px solid #e5e3da;border-radius:12px;padding:14px 16px;margin-bottom:20px}
+.stu-code{font-size:24px;font-weight:500;color:#534ab7}
+.stu-name{font-size:14px;color:#444;margin-top:3px}
+.stu-meta{font-size:13px;color:#888;margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+.fp-box{background:#f0effe;border:1px solid #afa9ec;border-radius:8px;padding:9px 12px;margin-bottom:12px}
+.fp-lbl{font-size:12px;font-weight:500;color:#3c3489;margin-bottom:2px}
+.fp-val{font-size:12px;font-family:monospace;color:#534ab7;letter-spacing:.04em;word-break:break-all}
+.loc-status{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:8px;font-size:13px;margin-bottom:10px}
+.loc-status.idle{background:#f1efe8;color:#888}
+.loc-status.busy{background:#faeeda;color:#854f0b}
+.loc-status.ok  {background:#eaf3de;color:#3b6d11}
+.ls-dot{width:8px;height:8px;border-radius:50%;background:currentColor;flex-shrink:0}
+.loc-status.busy .ls-dot{animation:pulse .8s infinite}
+.result-box{border-radius:10px;padding:12px 14px;font-size:13px;margin-bottom:10px;display:none;line-height:1.6}
+.result-box.show{display:block}
+.result-ok {background:#eaf3de;border:1px solid #97c459;color:#3b6d11}
+.result-err{background:#fcebeb;border:1px solid #f09595;color:#791f1f}
+.info-card{background:#fff;border:1px solid #e5e3da;border-radius:12px;padding:15px}
+.info-card p{font-size:13px;font-weight:500;margin-bottom:7px;color:#444}
+.info-card ul{font-size:13px;color:#666;line-height:1.9;padding-left:18px}
+
+/* ─── BIOMETRICS ─────────────────────────────── */
+.bio-btn{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:12px}
+.or-row{display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px;color:#aaa}
+.or-row::before,.or-row::after{content:'';flex:1;height:1px;background:#e5e3da}
+
+/* ─── APPROVAL ITEMS ─────────────────────────── */
+.appr-item{background:#fff;border:1px solid #e5e3da;border-radius:8px;padding:11px 13px;margin-bottom:7px;font-size:13px}
+.appr-hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:5px}
+.appr-actions{display:flex;gap:6px;margin-top:7px}
+  </style>
+</head>
+<body>
+
+<div class="demo-bar" id="demo-bar">
+  ⚠️ <strong>Demo mode</strong> — Firebase is not configured. Real-time sync across devices requires Firebase.
+  Check-ins appear live if both lecturer and student are on the <strong>same browser</strong>.
+  See README for Firebase setup (10 min).
+</div>
+<div class="offline-bar" id="offline-bar">📡 You are offline — check-ins will sync when you reconnect.</div>
+
+<!-- ═══════════════════ LANDING ════════════════════ -->
+<div class="view center" id="view-landing">
+  <div class="land-logo">🎓</div>
+  <div class="land-title">QR Attendance System</div>
+  <div class="land-sub">Smart, secure attendance tracking for your institution</div>
+  <div class="role-cards">
+    <div class="role-card" onclick="goTo('lec-login')">
+      <div class="role-icon">👨‍🏫</div>
+      <div class="role-name">Lecturer</div>
+      <div class="role-desc">Sign in to create sessions and track attendance</div>
+    </div>
+    <div class="role-card" onclick="goTo('stu-scan')">
+      <div class="role-icon">🎒</div>
+      <div class="role-name">Student</div>
+      <div class="role-desc">Scan the QR code from your lecturer</div>
+    </div>
+    <div class="role-card" onclick="goTo('admin-login')" style="border-style:dashed">
+      <div class="role-icon">🔐</div>
+      <div class="role-name">Admin</div>
+      <div class="role-desc">Generate OTPs, manage lecturers and backups</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ LECTURER LOGIN ════════════════════ -->
+<div class="view center" id="view-lec-login">
+  <div class="auth-card">
+    <div class="auth-logo">👨‍🏫</div>
+    <div class="auth-title">Lecturer Sign In</div>
+    <div class="auth-sub">Enter your registered email and password</div>
+    <div class="alert" id="ll-alert"></div>
+    <button class="btn btn-dark bio-btn" id="bio-btn" style="display:none" onclick="biometricLogin()">
+      <span>🔒</span> Sign in with Biometrics
+    </button>
+    <div class="or-row" id="bio-or" style="display:none">or continue with email</div>
+    <div class="field"><label>Email address</label>
+      <input type="email" id="ll-email" placeholder="you@university.edu" autocomplete="email"/>
+    </div>
+    <div class="field"><label>Password</label>
+      <div class="pass-wrap">
+        <input type="password" id="ll-pass" placeholder="Password" autocomplete="current-password"
+               onkeydown="if(event.key==='Enter')lecLogin()"/>
+        <button class="eye" onclick="toggleEye('ll-pass',this)" tabindex="-1">👁</button>
+      </div>
+    </div>
+    <button class="btn btn-primary" id="ll-btn" onclick="lecLogin()">Sign in</button>
+    <div class="auth-link">No account? <a onclick="goTo('lec-signup')">Register with your OTP</a></div>
+    <div class="auth-link"><a onclick="goTo('landing')">← Back</a></div>
+  </div>
+</div>
+
+<!-- ═══════════════════ LECTURER SIGNUP ════════════════════ -->
+<div class="view center" id="view-lec-signup">
+  <div class="auth-card">
+    <div class="auth-logo">🔑</div>
+    <div class="auth-title">Lecturer Registration</div>
+    <div class="auth-sub">Enter the one-time password your admin generated for you</div>
+    <div class="alert" id="ls-alert"></div>
+    <div class="field">
+      <label>One-time password (OTP) <span style="color:#a32d2d;font-size:11px">— from admin</span></label>
+      <input type="text" id="ls-otp" placeholder="e.g. 483921"
+             maxlength="6" inputmode="numeric" oninput="this.value=this.value.replace(/\D/g,'').slice(0,6)"
+             style="font-size:22px;letter-spacing:.2em;text-align:center;font-weight:600"/>
+    </div>
+    <div class="two-col">
+      <div class="field"><label>Full name</label>
+        <input type="text" id="ls-name" placeholder="Dr. Ama Mensah" autocomplete="name"/>
+      </div>
+      <div class="field"><label>Department</label>
+        <input type="text" id="ls-dept" placeholder="Mathematics"/>
+      </div>
+    </div>
+    <div class="field"><label>Email address</label>
+      <input type="email" id="ls-email" placeholder="you@university.edu" autocomplete="email"/>
+    </div>
+    <div class="field"><label>Password</label>
+      <div class="pass-wrap">
+        <input type="password" id="ls-pass" placeholder="Min 8 characters" autocomplete="new-password"/>
+        <button class="eye" onclick="toggleEye('ls-pass',this)" tabindex="-1">👁</button>
+      </div>
+    </div>
+    <div class="field"><label>Confirm password</label>
+      <input type="password" id="ls-pass2" placeholder="Repeat password" autocomplete="new-password"/>
+    </div>
+    <div class="strip amber" style="font-size:12px;margin-bottom:12px">
+      🎲 A unique Lecturer ID will be automatically assigned to your account.
+    </div>
+    <button class="btn btn-primary" id="ls-btn" onclick="lecSignup()">Create account</button>
+    <div class="auth-link">Already registered? <a onclick="goTo('lec-login')">Sign in</a></div>
+    <div class="auth-link"><a onclick="goTo('landing')">← Back</a></div>
+  </div>
+</div>
+
+<!-- ═══════════════════ LECTURER DASHBOARD ════════════════════ -->
+<div class="view" id="view-lecturer">
+  <div class="topbar">
+    <span class="topbar-icon">👨‍🏫</span>
+    <span class="topbar-title">Lecturer Dashboard</span>
+    <span class="rpill lec">Lecturer</span>
+    <span class="topbar-user" id="lec-topbar-name"></span>
+    <button class="topbar-btn" onclick="lecLogout()">Sign out</button>
+  </div>
+  <div class="tabs">
+    <div class="tab active" onclick="lecTab('session')">Session</div>
+    <div class="tab" onclick="lecTab('records')">My Records</div>
+    <div class="tab" onclick="lecTab('combined')">Combined Reports</div>
+  </div>
+
+  <!-- SESSION -->
+  <div class="tab-page active" id="lec-pg-session">
+    <div class="pg">
+      <div id="lec-setup">
+        <h2>Create a session</h2>
+        <p class="sub">Fill in the course details and generate the QR code for your class.</p>
+        <div class="lecid-box">
+          <div><div class="lecid-lbl">Your Lecturer ID</div><div class="lecid-val" id="lecid-val">—</div></div>
+          <span style="font-size:11px;opacity:.7;text-align:right">Auto-assigned<br/>unique ID</span>
+        </div>
+        <div class="two-col">
+          <div class="field"><label>Course code</label>
+            <input type="text" id="l-code" placeholder="MATH101" oninput="this.value=this.value.toUpperCase()"/>
+          </div>
+          <div class="field"><label>Course name</label>
+            <input type="text" id="l-course" placeholder="Mathematics"/>
+          </div>
+        </div>
+        <div class="field"><label>Lecturer name</label><input type="text" id="l-lec-name" readonly/></div>
+        <div class="sl-row">
+          <label>Duration</label>
+          <input type="range" id="l-dur" min="5" max="90" value="60"
+                 oninput="Q('l-dur-val').textContent=fmtDur(+this.value)"/>
+          <span class="sval" id="l-dur-val">60 min</span>
+        </div>
+        <div class="tog-wrap" onclick="toggleLoc()">
+          <div class="tog" id="loc-tog"><div class="tok"></div></div>
+          <label>Require students to be within range</label>
+        </div>
+        <div id="radius-row" style="display:none">
+          <div class="sl-row">
+            <label>Max distance</label>
+            <input type="range" id="l-radius" min="20" max="500" value="100"
+                   oninput="Q('l-rad-val').textContent=this.value+'m'"/>
+            <span class="sval" id="l-rad-val">100m</span>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="gen-btn" onclick="startSession()">Generate QR code</button>
+      </div>
+
+      <div id="lec-active" style="display:none">
+        <h2>Session active</h2>
+        <p class="sub">Show the QR code to your students — attendance appears below in real time.</p>
+        <div class="strip purple">
+          <strong id="l-si-code"></strong> — <span id="l-si-course"></span><br/>
+          Lecturer: <strong id="l-si-lec"></strong> &nbsp;·&nbsp; Date: <strong id="l-si-date"></strong><br/>
+          Lecturer ID: <strong id="l-si-lecid"></strong> &nbsp;·&nbsp;
+          Session: <strong id="l-si-id"></strong> &nbsp;·&nbsp; <strong id="l-si-dur"></strong>
+          <div class="sec-pills" id="sec-pills"></div>
+        </div>
+        <div id="l-loc-card" class="strip gray">
+          <strong id="l-lfc-title">Location check disabled</strong>
+          <div style="font-size:12px;font-family:monospace;color:#0f6e56;margin-top:2px" id="l-lfc-detail"></div>
+        </div>
+        <div class="qr-wrap">
+          <div id="qr-box"></div>
+          <div class="qr-btns">
+            <button class="btn btn-secondary btn-sm" onclick="downloadQR()">⬇ Download QR</button>
+          </div>
+          <div class="countdown ok" id="l-cd">—</div>
+          <p style="font-size:12px;color:#888;margin-top:6px">Students scan with their phone camera</p>
+        </div>
+        <div class="list-hdr">
+          <h3>Present students</h3>
+          <span class="badge" id="l-att-count">0</span>
+        </div>
+        <div id="l-att-list"><div class="att-empty">Waiting for students to check in…</div></div>
+        <div style="margin-top:12px">
+          <button class="btn btn-secondary btn-sm" id="csv-btn"
+                  onclick="exportSessionCSV(A.session.id)" style="display:none">Export CSV</button>
+        </div>
+        <div id="l-blk-wrap" style="display:none">
+          <hr class="divider"/>
+          <div class="list-hdr">
+            <h3 style="color:#a32d2d">Blocked attempts</h3>
+            <span class="badge-red" id="l-blk-count">0</span>
+          </div>
+          <div id="l-blk-list"></div>
+        </div>
+        <hr class="divider"/>
+        <button class="btn btn-danger" onclick="endSession()">End session &amp; save records</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RECORDS -->
+  <div class="tab-page" id="lec-pg-records">
+    <div class="pg">
+      <h2>My past sessions</h2>
+      <p class="sub">All sessions you have created. Admin backup is always preserved.</p>
+      <div id="records-list"><div class="no-rec">No completed sessions yet.</div></div>
+    </div>
+  </div>
+
+  <!-- COMBINED -->
+  <div class="tab-page" id="lec-pg-combined">
+    <div class="pg">
+      <h2>Combined attendance reports</h2>
+      <p class="sub">All attendance grouped by course. Download a master CSV per course.</p>
+      <div id="combined-list"><div class="no-rec">No sessions recorded yet.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ ADMIN LOGIN ════════════════════ -->
+<div class="view center" id="view-admin-login">
+  <div class="auth-card">
+    <div class="auth-logo">🔐</div>
+    <div class="auth-title">Admin Login</div>
+    <div class="auth-sub">Super-admin and co-admin login</div>
+    <div class="alert" id="al-alert"></div>
+    <div class="field"><label>Admin password</label>
+      <div class="pass-wrap">
+        <input type="password" id="al-pass" placeholder="Admin password" autocomplete="current-password"
+               onkeydown="if(event.key==='Enter')adminLogin()"/>
+        <button class="eye" onclick="toggleEye('al-pass',this)" tabindex="-1">👁</button>
+      </div>
+    </div>
+    <button class="btn btn-amber" onclick="adminLogin()">Enter admin panel</button>
+    <div class="auth-link"><a onclick="goTo('landing')">← Back</a></div>
+    <div style="margin-top:12px;font-size:11px;color:#aaa;text-align:center">Default: <code>admin1234</code> — change in Settings</div>
+  </div>
+</div>
+
+<!-- ═══════════════════ ADMIN DASHBOARD ════════════════════ -->
+<div class="view" id="view-admin">
+  <div class="topbar">
+    <span class="topbar-icon">🔐</span>
+    <span class="topbar-title">Admin Panel</span>
+    <span class="rpill adm">Admin</span>
+    <span class="topbar-user" id="admin-role-lbl">Super Admin</span>
+    <button class="topbar-btn" onclick="adminLogout()">Sign out</button>
+  </div>
+  <div class="tabs">
+    <div class="tab active" onclick="adminTab('otp')">OTP Manager</div>
+    <div class="tab" onclick="adminTab('lecturers')">Lecturers</div>
+    <div class="tab" onclick="adminTab('backup')">Backups</div>
+    <div class="tab" onclick="adminTab('coadmins')">Co-Admins</div>
+    <div class="tab" onclick="adminTab('settings')">Settings</div>
+  </div>
+
+  <!-- OTP MANAGER -->
+  <div class="tab-page active" id="adm-pg-otp">
+    <div class="pg">
+      <h2>Lecturer OTP Manager</h2>
+      <p class="sub">Generate a one-time password for each lecturer. Each OTP is 6 digits, valid for 24 hours, and can only be used once to register one account.</p>
+      <div class="strip amber"><strong>How to distribute:</strong> Generate an OTP, then share that 6-digit code with the lecturer (by email, WhatsApp, letter, etc.). They enter it on the registration page.</div>
+
+      <div style="background:#fff;border:1px solid #e5e3da;border-radius:12px;padding:18px;margin-bottom:18px">
+        <h3>Generate a new OTP</h3>
+        <div class="field" style="margin-top:10px">
+          <label>Intended for (name/email — for your reference)</label>
+          <input type="text" id="otp-intended" placeholder="e.g. Dr. Mensah or mensah@university.edu"/>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="generateOTP()">Generate OTP</button>
+        <div id="otp-result" style="display:none">
+          <div class="otp-display">
+            <div class="otp-label">One-Time Password — share this with the lecturer</div>
+            <div class="otp-code" id="otp-code-display"></div>
+            <div class="otp-expiry" id="otp-expiry-display"></div>
+          </div>
+          <div class="strip green"><strong>✓ OTP generated.</strong> Share the 6-digit code above with the lecturer. It expires in 24 hours and can only be used once.</div>
+        </div>
+      </div>
+
+      <div class="list-hdr">
+        <h3>Active OTPs</h3>
+        <span class="badge" id="otp-active-count">0</span>
+      </div>
+      <div id="otp-list"><div class="no-rec">No OTPs generated yet.</div></div>
+    </div>
+  </div>
+
+  <!-- LECTURERS -->
+  <div class="tab-page" id="adm-pg-lecturers">
+    <div class="pg">
+      <h2>Registered lecturers</h2>
+      <p class="sub">All lecturers who registered using an OTP.</p>
+      <div id="lecturers-list"><div class="no-rec">No lecturers registered yet.</div></div>
+    </div>
+  </div>
+
+  <!-- BACKUP -->
+  <div class="tab-page" id="adm-pg-backup">
+    <div class="pg">
+      <h2>Session backups</h2>
+      <p class="sub">Every session is auto-backed up here when it ends. Preserved even if a lecturer deletes their own records.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+        <select id="bk-lec" onchange="renderBackups()" style="padding:8px 12px;font-size:13px;width:auto">
+          <option value="all">All lecturers</option>
+        </select>
+        <select id="bk-course" onchange="renderBackups()" style="padding:8px 12px;font-size:13px;width:auto">
+          <option value="all">All courses</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" onclick="exportBackupCSV()">Export filtered CSV</button>
+      </div>
+      <div id="backup-list"><div class="no-rec">No backup data yet.</div></div>
+    </div>
+  </div>
+
+  <!-- CO-ADMINS -->
+  <div class="tab-page" id="adm-pg-coadmins">
+    <div class="pg">
+      <h2>Co-admins</h2>
+      <p class="sub">Co-admins have limited access. Destructive actions require your approval.</p>
+      <div class="strip amber"><strong>Approval queue:</strong> Delete/revoke requests from co-admins appear below for you to approve or deny before they run.</div>
+      <div style="background:#fff;border:1px solid #e5e3da;border-radius:12px;padding:18px;margin-bottom:18px">
+        <h3>Add co-admin</h3>
+        <div class="alert" id="ca-alert"></div>
+        <div class="two-col" style="margin-top:10px">
+          <div class="field"><label>Name</label><input type="text" id="ca-name" placeholder="Co-admin name"/></div>
+          <div class="field"><label>Email</label><input type="email" id="ca-email" placeholder="email@uni.edu"/></div>
+        </div>
+        <div class="field"><label>Password</label>
+          <div class="pass-wrap">
+            <input type="password" id="ca-pass" placeholder="Min 8 characters"/>
+            <button class="eye" onclick="toggleEye('ca-pass',this)" tabindex="-1">👁</button>
+          </div>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="addCoAdmin()">Add co-admin</button>
+      </div>
+      <div class="list-hdr"><h3>Current co-admins</h3></div>
+      <div id="coadmins-list"><div class="no-rec">No co-admins yet.</div></div>
+      <div id="pending-section" style="display:none">
+        <hr class="divider"/>
+        <div class="list-hdr">
+          <h3 style="color:#ba7517">Pending approvals</h3>
+          <span style="background:#ba7517;color:#fff;font-size:11px;font-weight:500;padding:2px 8px;border-radius:20px;display:inline-block" id="pending-count">0</span>
+        </div>
+        <div id="pending-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div class="tab-page" id="adm-pg-settings">
+    <div class="pg">
+      <h2>Settings</h2>
+      <p class="sub">System overview and password management.</p>
+      <div class="strip gray" id="admin-stats"></div>
+      <div style="background:#fff;border:1px solid #e5e3da;border-radius:12px;padding:18px;margin-bottom:14px">
+        <h3>Change admin password</h3>
+        <div class="alert" id="pw-err"></div>
+        <div class="alert" id="pw-ok"></div>
+        <div class="field" style="margin-top:12px"><label>Current password</label>
+          <input type="password" id="pw-cur" placeholder="Current password"/>
+        </div>
+        <div class="field"><label>New password</label>
+          <input type="password" id="pw-new" placeholder="Min 8 characters"/>
+        </div>
+        <div class="field"><label>Confirm new password</label>
+          <input type="password" id="pw-new2" placeholder="Repeat new password"/>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="changeAdminPw()">Update password</button>
+      </div>
+      <div style="background:#fff;border:1px solid #f7c1c1;border-radius:12px;padding:18px">
+        <h3 style="color:#a32d2d">Danger zone</h3>
+        <p style="font-size:13px;color:#666;margin:8px 0 12px">Permanently deletes all accounts, sessions and backups.</p>
+        <button class="btn btn-danger btn-sm" onclick="resetAllData()">Reset all data</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ STUDENT SCAN PROMPT ════════════════════ -->
+<div class="view" id="view-stu-scan">
+  <div class="topbar">
+    <span class="topbar-icon">🎒</span>
+    <span class="topbar-title">Student Check-in</span>
+    <span class="rpill stu">Student</span>
+  </div>
+  <div class="pg" style="text-align:center;padding-top:60px">
+    <div style="font-size:56px;margin-bottom:14px">📷</div>
+    <h2>Scan the QR code</h2>
+    <p class="sub" style="margin-top:6px">Your lecturer must start a session and display the QR code.<br/>Scan it to open the check-in page.</p>
+    <div class="info-card" style="text-align:left;margin-top:8px">
+      <p>How it works</p>
+      <ul>
+        <li>Lecturer starts a session and shows you the QR code</li>
+        <li>Scan it — your phone opens this check-in page</li>
+        <li>Enter your name and student ID to sign in</li>
+        <li>Your check-in appears on the lecturer's screen instantly</li>
+      </ul>
+    </div>
+    <button class="btn btn-secondary" style="max-width:200px;margin:18px auto 0" onclick="goTo('landing')">← Back</button>
+  </div>
+</div>
+
+<!-- ═══════════════════ STUDENT CHECK-IN FORM ════════════════════ -->
+<div class="view" id="view-stu-checkin">
+  <div class="topbar">
+    <span class="topbar-icon">🎒</span>
+    <span class="topbar-title">Student Check-in</span>
+    <span class="rpill stu">Student</span>
+  </div>
+  <div class="pg">
+    <div class="state-blk show" id="stu-loading">
+      <div class="state-icon">⏳</div>
+      <div class="state-title">Loading session…</div>
+      <div class="state-msg">Please wait</div>
+    </div>
+    <div class="state-blk" id="stu-invalid">
+      <div class="state-icon">⚠️</div>
+      <div class="state-title" id="inv-title">Invalid QR code</div>
+      <div class="state-msg" id="inv-msg">This QR code is invalid or has expired. Ask your lecturer for a new one.</div>
+    </div>
+    <div class="state-blk" id="stu-done">
+      <div class="state-icon">✅</div>
+      <div class="state-title">You're checked in!</div>
+      <div class="state-msg" id="done-msg">Your attendance has been recorded.</div>
+    </div>
+    <div id="stu-form" style="display:none">
+      <h2>Check in to class</h2>
+      <p class="sub">A session is active. Fill in your details below.</p>
+      <div class="stu-sess">
+        <div class="stu-code" id="s-code">—</div>
+        <div class="stu-name" id="s-course">—</div>
+        <div class="stu-meta">
+          <span>📅 <span id="s-date">—</span></span>
+          <span class="countdown ok" id="s-cd">—</span>
+        </div>
+      </div>
+      <div class="fp-box">
+        <div class="fp-lbl">Your device fingerprint (auto-generated)</div>
+        <div class="fp-val" id="s-fp">—</div>
+      </div>
+      <div class="field"><label>Full name</label>
+        <input type="text" id="s-name" placeholder="e.g. Ama Owusu" autocomplete="name"/>
+      </div>
+      <div class="field">
+        <label>Student ID <span style="color:#a32d2d;font-size:11px">— unique per session</span></label>
+        <input type="text" id="s-sid" placeholder="e.g. UG/2023/0042" autocomplete="off"/>
+      </div>
+      <div class="loc-status idle" id="ls-box">
+        <div class="ls-dot"></div><span id="ls-text">Location not required for this session</span>
+      </div>
+      <div id="loc-btn-row" style="display:none">
+        <div class="row-btns">
+          <button class="btn btn-teal" onclick="getStudentLoc()">📍 Get my location</button>
+          <button class="btn btn-primary" id="ci-btn-loc" onclick="checkIn()">Check in</button>
+        </div>
+      </div>
+      <div id="no-loc-row">
+        <button class="btn btn-primary" id="ci-btn" onclick="checkIn()">Check in</button>
+      </div>
+      <div class="result-box result-ok" id="res-ok"></div>
+      <div class="result-box result-err" id="res-err"></div>
+      <div class="info-card" style="margin-top:18px">
+        <p>Security for this session</p>
+        <ul>
+          <li>One device per sign-in — each phone can only check in once</li>
+          <li>Student ID must be unique in this session</li>
+          <li>The QR code expires after the set duration</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     JAVASCRIPT
+════════════════════════════════════════════════════════════ -->
+<script>
+'use strict';
+
+/* ───────────────────────────────────────────────────────────
+   ▼▼▼  PASTE YOUR FIREBASE CONFIG HERE  ▼▼▼
+   Get it from Firebase Console → Project Settings → Web app
+   Leave as-is to run in localStorage demo mode.
+──────────────────────────────────────────────────────────── */
+const FB_CFG = {
+  apiKey:            'YOUR_API_KEY',
+  authDomain:        'YOUR_PROJECT.firebaseapp.com',
+  databaseURL:       'https://YOUR_PROJECT-default-rtdb.firebaseio.com',
+  projectId:         'YOUR_PROJECT',
+  storageBucket:     'YOUR_PROJECT.appspot.com',
+  messagingSenderId: 'YOUR_SENDER_ID',
+  appId:             'YOUR_APP_ID'
+};
+/* ▲▲▲  END FIREBASE CONFIG  ▲▲▲ */
+
+
+/* ═══════════════════════════════════════════════
+   FIREBASE INIT
+═══════════════════════════════════════════════ */
+let fbDb = null;
+let FB_READY = false;
+
+(function () {
+  if (FB_CFG.apiKey.startsWith('YOUR_')) return; // demo mode
+  try {
+    firebase.initializeApp(FB_CFG);
+    fbDb = firebase.database();
+    FB_READY = true;
+    fbDb.ref('.info/connected').on('value', s => {
+      if (s.val()) processQueue();
+    });
+  } catch (e) {
+    console.warn('Firebase init failed:', e.message);
+  }
+})();
+
+
+/* ═══════════════════════════════════════════════
+   BROADCAST CHANNEL (same-browser sync when no Firebase)
+   This lets the student tab notify the lecturer tab.
+═══════════════════════════════════════════════ */
+let bc = null;
+try { bc = new BroadcastChannel('qratt_sync'); } catch (e) { /* not supported */ }
+
+function bcPost(msg) { try { bc?.postMessage(msg); } catch (e) {} }
+
+if (bc) {
+  bc.onmessage = (e) => {
+    const msg = e.data;
+    // Only act if we have an active session matching the incoming sessionId
+    if (msg?.type === 'record' && A.session?.id === msg.sessionId) {
+      const recs = LS.records(msg.sessionId);
+      renderLiveAtt(recs);
+    }
+    if (msg?.type === 'blocked' && A.session?.id === msg.sessionId) {
+      renderLiveBlk(LS.blocked(msg.sessionId));
+    }
+  };
+}
+
+
+/* ═══════════════════════════════════════════════
+   APP STATE
+═══════════════════════════════════════════════ */
+const A = {
+  lec:         null,   // current logged-in lecturer
+  session:     null,   // active session object
+  isAdmin:     false,
+  isCoAdmin:   false,
+  coAdminName: '',
+  locOn:       false,
+  tickTimer:   null,
+  pollTimer:   null,
+  fbUnsubRec:  null,
+  fbUnsubBlk:  null,
+  stuSession:  null,
+  stuCdTimer:  null,
+  stuLat:      null,
+  stuLng:      null,
+};
+
+
+/* ═══════════════════════════════════════════════
+   LOCAL STORAGE (always used; Firebase is additive)
+═══════════════════════════════════════════════ */
+const LS = {
+  _: k => 'qratt_' + k,
+  get(k)   { try { return JSON.parse(localStorage.getItem(this._(k))); } catch { return null; } },
+  set(k,v) { try { localStorage.setItem(this._(k), JSON.stringify(v)); } catch {} },
+  del(k)   { localStorage.removeItem(this._(k)); },
+
+  lecturers()       { return this.get('lecturers') || []; },
+  saveLecturers(a)  { this.set('lecturers', a); },
+  sessions()        { return this.get('sessions')  || []; },
+  saveSessions(a)   { this.set('sessions', a); },
+  adminPw()         { return this.get('adminPw')   || 'admin1234'; },
+  coAdmins()        { return this.get('coAdmins')  || []; },
+  saveCoAdmins(a)   { this.set('coAdmins', a); },
+  pending()         { return this.get('pending')   || []; },
+  savePending(a)    { this.set('pending', a); },
+  backup()          { return this.get('backup')    || {}; },
+  saveBackup(a)     { this.set('backup', a); },
+  otps()            { return this.get('otps')      || []; },
+  saveOtps(a)       { this.set('otps', a); },
+  queue()           { return this.get('queue')     || []; },
+  saveQueue(a)      { this.set('queue', a); },
+
+  // Per-session data
+  records(id)         { return this.get('rec_'+id)  || []; },
+  blocked(id)         { return this.get('blk_'+id)  || []; },
+  devices(id)         { return this.get('dev_'+id)  || []; },
+  sids(id)            { return this.get('sid_'+id)  || []; },
+  pushRecord(id, r)   { const a=this.records(id); a.push(r); this.set('rec_'+id, a); },
+  pushBlocked(id, b)  { const a=this.blocked(id); a.push(b); this.set('blk_'+id, a); },
+  addDevice(id, fp)   { const a=this.devices(id); if(!a.includes(fp)){a.push(fp);this.set('dev_'+id,a);} },
+  addSid(id, sid)     { const a=this.sids(id); const n=sid.toUpperCase(); if(!a.includes(n)){a.push(n);this.set('sid_'+id,a);} },
+  isDeviceUsed(id,fp) { return this.devices(id).includes(fp); },
+  isSidUsed(id,sid)   { return this.sids(id).includes(sid.toUpperCase()); },
+};
+
+
+/* ═══════════════════════════════════════════════
+   FIREBASE DATABASE HELPERS
+═══════════════════════════════════════════════ */
+const DB = {
+  /* Sessions */
+  async getSession(id) {
+    if (FB_READY) {
+      const s = await fbDb.ref('sessions/'+id).once('value').catch(()=>null);
+      if (s?.val()) return s.val();
+    }
+    return LS.sessions().find(s=>s.id===id) || null;
+  },
+  async saveSession(sess) {
+    LS.saveSessions([...LS.sessions().filter(s=>s.id!==sess.id), sess]);
+    if (FB_READY) await fbDb.ref('sessions/'+sess.id).set(sess).catch(()=>{});
+  },
+  async updateSession(id, data) {
+    LS.saveSessions(LS.sessions().map(s=>s.id===id?{...s,...data}:s));
+    if (FB_READY) await fbDb.ref('sessions/'+id).update(data).catch(()=>{});
+  },
+  async getMyLecSessions(lecFirebaseId) {
+    if (FB_READY) {
+      const snap = await fbDb.ref('sessions').orderByChild('lecFirebaseId').equalTo(lecFirebaseId).once('value').catch(()=>null);
+      if (snap?.val()) return Object.values(snap.val());
+    }
+    return LS.sessions().filter(s=>s.lecFirebaseId===lecFirebaseId);
+  },
+  async getAllSessions() {
+    if (FB_READY) {
+      const snap = await fbDb.ref('sessions').once('value').catch(()=>null);
+      if (snap?.val()) return Object.values(snap.val());
+    }
+    return LS.sessions();
+  },
+
+  /* Check-in writes */
+  async pushRecord(sessionId, rec) {
+    LS.pushRecord(sessionId, rec);
+    if (FB_READY) {
+      await fbDb.ref('sessions/'+sessionId+'/records').push(rec).catch(()=>{});
+    } else if (!navigator.onLine) {
+      LS.saveQueue([...LS.queue(), {type:'record', sessionId, rec}]);
+    }
+    // Notify lecturer tab via BroadcastChannel (same-browser fallback)
+    bcPost({type:'record', sessionId});
+  },
+  async pushBlocked(sessionId, item) {
+    LS.pushBlocked(sessionId, item);
+    if (FB_READY) await fbDb.ref('sessions/'+sessionId+'/blocked').push(item).catch(()=>{});
+    bcPost({type:'blocked', sessionId});
+  },
+  async addDevice(sessionId, fp) {
+    LS.addDevice(sessionId, fp);
+    if (FB_READY) await fbDb.ref('sessions/'+sessionId+'/devices/'+fp.replace(/[^a-zA-Z0-9]/g,'_')).set(true).catch(()=>{});
+  },
+  async addSid(sessionId, sid) {
+    LS.addSid(sessionId, sid);
+    if (FB_READY) {
+      const key = btoa(sid.toUpperCase()).replace(/[^a-zA-Z0-9]/g,'_');
+      await fbDb.ref('sessions/'+sessionId+'/sids/'+key).set(sid.toUpperCase()).catch(()=>{});
+    }
+  },
+  async isDeviceUsed(sessionId, fp) {
+    if (FB_READY) {
+      const snap = await fbDb.ref('sessions/'+sessionId+'/devices/'+fp.replace(/[^a-zA-Z0-9]/g,'_')).once('value').catch(()=>null);
+      if (snap) return snap.exists();
+    }
+    return LS.isDeviceUsed(sessionId, fp);
+  },
+  async isSidUsed(sessionId, sid) {
+    if (FB_READY) {
+      const key = btoa(sid.toUpperCase()).replace(/[^a-zA-Z0-9]/g,'_');
+      const snap = await fbDb.ref('sessions/'+sessionId+'/sids/'+key).once('value').catch(()=>null);
+      if (snap) return snap.exists();
+    }
+    return LS.isSidUsed(sessionId, sid);
+  },
+  async getRecords(sessionId) {
+    if (FB_READY) {
+      const snap = await fbDb.ref('sessions/'+sessionId+'/records').once('value').catch(()=>null);
+      if (snap?.val()) return Object.values(snap.val());
+    }
+    return LS.records(sessionId);
+  },
+  async getBlocked(sessionId) {
+    if (FB_READY) {
+      const snap = await fbDb.ref('sessions/'+sessionId+'/blocked').once('value').catch(()=>null);
+      if (snap?.val()) return Object.values(snap.val());
+    }
+    return LS.blocked(sessionId);
+  },
+
+  /*
+   * REAL-TIME LISTENERS
+   * These are the key to making check-ins appear live on the lecturer's screen.
+   * Firebase: .on('value') fires every time any student writes a record.
+   * No Firebase: poll localStorage every 1.5 seconds (works on same browser).
+   */
+  listenRecords(sessionId, cb) {
+    if (FB_READY) {
+      const ref = fbDb.ref('sessions/'+sessionId+'/records');
+      const fn  = snap => cb(snap.val() ? Object.values(snap.val()) : []);
+      ref.on('value', fn);
+      return () => ref.off('value', fn);
+    }
+    // Polling fallback
+    cb(LS.records(sessionId));
+    const interval = setInterval(() => cb(LS.records(sessionId)), 1500);
+    return () => clearInterval(interval);
+  },
+  listenBlocked(sessionId, cb) {
+    if (FB_READY) {
+      const ref = fbDb.ref('sessions/'+sessionId+'/blocked');
+      const fn  = snap => cb(snap.val() ? Object.values(snap.val()) : []);
+      ref.on('value', fn);
+      return () => ref.off('value', fn);
+    }
+    cb(LS.blocked(sessionId));
+    const interval = setInterval(() => cb(LS.blocked(sessionId)), 1500);
+    return () => clearInterval(interval);
+  },
+
+  /* Lecturers */
+  async getLecturers() {
+    if (FB_READY) {
+      const snap = await fbDb.ref('lecturers').once('value').catch(()=>null);
+      if (snap?.val()) return Object.values(snap.val());
+    }
+    return LS.lecturers();
+  },
+  async getLecByEmail(email) {
+    const lecs = await this.getLecturers();
+    return lecs.find(l=>l.email===email.toLowerCase()) || null;
+  },
+  async saveLec(lec) {
+    LS.saveLecturers([...LS.lecturers().filter(l=>l.id!==lec.id), lec]);
+    if (FB_READY) await fbDb.ref('lecturers/'+lec.id).set(lec).catch(()=>{});
+  },
+  async deleteLec(id) {
+    const lec = LS.lecturers().find(l=>l.id===id);
+    LS.saveLecturers(LS.lecturers().filter(l=>l.id!==id));
+    if (FB_READY) await fbDb.ref('lecturers/'+id).remove().catch(()=>{});
+    return lec;
+  },
+
+  /* Backup */
+  async saveBackup(sess, records, blocked) {
+    const entry = {session:sess, records, blocked, savedAt:new Date().toISOString()};
+    const all = LS.backup();
+    if (!all[sess.lecId]) all[sess.lecId] = {};
+    all[sess.lecId][sess.id] = entry;
+    LS.saveBackup(all);
+    if (FB_READY) await fbDb.ref('backup/'+sess.lecId+'/'+sess.id).set(entry).catch(()=>{});
+  },
+  async getAllBackups() {
+    if (FB_READY) {
+      const snap = await fbDb.ref('backup').once('value').catch(()=>null);
+      if (snap?.val()) return snap.val();
+    }
+    return LS.backup();
+  },
+};
+
+
+/* ═══════════════════════════════════════════════
+   OFFLINE QUEUE
+═══════════════════════════════════════════════ */
+async function processQueue() {
+  const queue = LS.queue();
+  if (!queue.length) return;
+  const failed = [];
+  for (const item of queue) {
+    try {
+      if (item.type==='record' && FB_READY)
+        await fbDb.ref('sessions/'+item.sessionId+'/records').push(item.rec);
+    } catch { failed.push(item); }
+  }
+  LS.saveQueue(failed);
+}
+
+
+/* ═══════════════════════════════════════════════
+   OTP SYSTEM
+═══════════════════════════════════════════════ */
+function gen6() {
+  const a = new Uint32Array(1);
+  crypto.getRandomValues(a);
+  return String(a[0] % 900000 + 100000); // always 6 digits
+}
+
+function generateOTP() {
+  const intended = Q('otp-intended').value.trim();
+  const code     = gen6();
+  const expiry   = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+  const otps     = LS.otps();
+  otps.push({ code, intended: intended || '(unspecified)', status:'active', createdAt:Date.now(), expiry });
+  LS.saveOtps(otps);
+
+  Q('otp-code-display').textContent   = code;
+  Q('otp-expiry-display').textContent = 'Expires: ' + new Date(expiry).toLocaleString();
+  Q('otp-result').style.display = 'block';
+  Q('otp-intended').value = '';
+  renderOTPs();
+}
+
+function renderOTPs() {
+  // Clean expired OTPs first
+  const now = Date.now();
+  const valid = LS.otps().map(o => o.expiry < now && o.status==='active' ? {...o, status:'expired'} : o);
+  LS.saveOtps(valid);
+
+  const active = valid.filter(o=>o.status==='active');
+  Q('otp-active-count').textContent = active.length;
+  const el = Q('otp-list');
+  if (!valid.length) { el.innerHTML='<div class="no-rec">No OTPs generated yet.</div>'; return; }
+
+  el.innerHTML = valid.slice().reverse().map(o => `
+    <div class="att-item">
+      <div class="att-dot" style="background:${o.status==='active'?'#639922':o.status==='used'?'#888':'#e24b4a'}"></div>
+      <span class="att-name" style="font-family:monospace;font-size:16px;font-weight:700;letter-spacing:.1em;color:${o.status==='active'?'#534ab7':'#888'}">${o.code}</span>
+      <span class="att-sid">${esc(o.intended)}</span>
+      <span class="pill ${o.status==='active'?'green':o.status==='used'?'gray':'red'}">${o.status}</span>
+      <span class="att-time">${new Date(o.createdAt).toLocaleString()}</span>
+      ${o.status==='active'?`<button class="btn btn-danger btn-sm" onclick="revokeOTP('${o.code}')">Revoke</button>`:''}
+    </div>`).join('');
+}
+
+function revokeOTP(code) {
+  if (!confirm('Revoke this OTP?')) return;
+  LS.saveOtps(LS.otps().map(o=>o.code===code?{...o,status:'revoked'}:o));
+  renderOTPs();
+}
+
+function validateOTP(code) {
+  const now  = Date.now();
+  const otps = LS.otps();
+  const idx  = otps.findIndex(o => o.code===code && o.status==='active' && o.expiry>now);
+  if (idx === -1) return null;
+  return { idx, otp: otps[idx] };
+}
+
+function markOTPUsed(code) {
+  LS.saveOtps(LS.otps().map(o=>o.code===code?{...o,status:'used',usedAt:new Date().toISOString()}:o));
+}
+
+
+/* ═══════════════════════════════════════════════
+   LECTURER ID ASSIGNMENT  (random from 100,000)
+═══════════════════════════════════════════════ */
+async function assignLecId() {
+  const lecs = await DB.getLecturers();
+  const used = new Set(lecs.map(l=>l.lecId).filter(Boolean));
+  for (let t=0; t<300; t++) {
+    const n  = Math.floor(Math.random()*100000)+1;
+    const id = 'LEC-' + String(n).padStart(6,'0');
+    if (!used.has(id)) return id;
+  }
+  for (let n=1; n<=100000; n++) {
+    const id = 'LEC-' + String(n).padStart(6,'0');
+    if (!used.has(id)) return id;
+  }
+  throw new Error('All Lecturer IDs in use.');
+}
+
+
+/* ═══════════════════════════════════════════════
+   BIOMETRICS (WebAuthn)
+═══════════════════════════════════════════════ */
+async function isBioAvail() {
+  return !!(window.PublicKeyCredential &&
+    await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().catch(()=>false));
+}
+
+async function registerBiometric(userId, email) {
+  if (!(await isBioAvail())) return null;
+  try {
+    const cred = await navigator.credentials.create({ publicKey:{
+      challenge:  crypto.getRandomValues(new Uint8Array(32)),
+      rp:         { name:'QR Attendance', id:location.hostname },
+      user:       { id:new TextEncoder().encode(userId), name:email, displayName:email },
+      pubKeyCredParams: [{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
+      authenticatorSelection: { authenticatorAttachment:'platform', userVerification:'required' },
+      timeout: 60000,
+    }});
+    return b64e(String.fromCharCode(...new Uint8Array(cred.rawId)));
+  } catch { return null; }
+}
+
+async function biometricLogin() {
+  clrAlert('ll-alert');
+  const email = localStorage.getItem('qratt_bio_email');
+  if (!email) { setAlert('ll-alert','No biometric profile. Sign in with email first.'); return; }
+  const lec = await DB.getLecByEmail(email).catch(()=>null);
+  if (!lec?.credId) { setAlert('ll-alert','No biometric profile for this account.'); return; }
+  try {
+    const chal = crypto.getRandomValues(new Uint8Array(32));
+    await navigator.credentials.get({ publicKey:{
+      challenge: chal,
+      allowCredentials: [{type:'public-key', id:Uint8Array.from(b64d(lec.credId),c=>c.charCodeAt(0))}],
+      userVerification:'required', timeout:60000,
+    }});
+    await activateLec(lec);
+  } catch { setAlert('ll-alert','Biometric failed. Please use email to sign in.'); }
+}
+
+
+/* ═══════════════════════════════════════════════
+   LECTURER AUTH
+═══════════════════════════════════════════════ */
+async function lecSignup() {
+  const otp   = Q('ls-otp').value.trim();
+  const name  = Q('ls-name').value.trim();
+  const dept  = Q('ls-dept').value.trim();
+  const email = Q('ls-email').value.trim().toLowerCase();
+  const pass  = Q('ls-pass').value;
+  const pass2 = Q('ls-pass2').value;
+  clrAlert('ls-alert');
+
+  if (!otp||!name||!dept||!email||!pass) return setAlert('ls-alert','All fields are required.');
+  if (otp.length!==6||!/^\d{6}$/.test(otp)) return setAlert('ls-alert','OTP must be a 6-digit number.');
+  if (pass.length<8) return setAlert('ls-alert','Password must be at least 8 characters.');
+  if (pass!==pass2)  return setAlert('ls-alert','Passwords do not match.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setAlert('ls-alert','Enter a valid email address.');
+
+  btnLoading('ls-btn', true);
+
+  try {
+    // Validate OTP
+    const otpResult = validateOTP(otp);
+    if (!otpResult) {
+      btnLoading('ls-btn',false,'Create account');
+      return setAlert('ls-alert','Invalid, expired, or already-used OTP. Ask your admin for a new one.');
+    }
+
+    // Check email uniqueness
+    const existing = await DB.getLecByEmail(email);
+    if (existing) {
+      btnLoading('ls-btn',false,'Create account');
+      return setAlert('ls-alert','An account with this email already exists.');
+    }
+
+    // Assign unique Lecturer ID
+    const lecId = await assignLecId();
+
+    // Mark OTP as used immediately (prevent race)
+    markOTPUsed(otp);
+
+    // Save lecturer
+    const uid   = makeToken();
+    const credId = await registerBiometric(uid, email);
+    if (credId) localStorage.setItem('qratt_bio_email', email);
+
+    const lec = {
+      id:uid, lecId, name, email, dept,
+      pwHash:   hashPw(pass),
+      credId:   credId||null,
+      otpUsed:  otp,
+      createdAt:new Date().toISOString()
+    };
+    await DB.saveLec(lec);
+
+    btnLoading('ls-btn',false,'Create account');
+    setAlert('ls-alert','Account created! Signing you in…','ok');
+    setTimeout(()=>activateLec(lec), 1200);
+
+  } catch(e) {
+    btnLoading('ls-btn',false,'Create account');
+    setAlert('ls-alert','Error: '+(e.message||'Something went wrong.'));
+  }
+}
+
+async function lecLogin() {
+  const email = Q('ll-email').value.trim().toLowerCase();
+  const pass  = Q('ll-pass').value;
+  clrAlert('ll-alert');
+  if (!email||!pass) return setAlert('ll-alert','Enter your email and password.');
+
+  btnLoading('ll-btn',true);
+  try {
+    const lec = await DB.getLecByEmail(email);
+    if (!lec || lec.pwHash!==hashPw(pass)) {
+      btnLoading('ll-btn',false,'Sign in');
+      return setAlert('ll-alert','Invalid email or password.');
+    }
+    btnLoading('ll-btn',false,'Sign in');
+    await activateLec(lec);
+  } catch(e) {
+    btnLoading('ll-btn',false,'Sign in');
+    setAlert('ll-alert','Error: '+(e.message||'Something went wrong.'));
+  }
+}
+
+async function activateLec(lec) {
+  A.lec = lec;
+  sessionStorage.setItem('qratt_lec', lec.email);
+  if (lec.credId) localStorage.setItem('qratt_bio_email', lec.email);
+  Q('lec-topbar-name').textContent = lec.name;
+  Q('l-lec-name').value            = lec.name;
+  Q('lecid-val').textContent        = lec.lecId;
+  Q('s-fp').textContent             = MY_FP;
+  goTo('lecturer');
+  resetLecForm();
+  if (lec.credId && await isBioAvail()) {
+    Q('bio-btn').style.display = 'flex';
+    Q('bio-or').style.display  = 'flex';
+  }
+}
+
+function lecLogout() {
+  stopTimers();
+  A.lec = null; A.session = null;
+  sessionStorage.removeItem('qratt_lec');
+  goTo('landing');
+}
+
+function resetLecForm() {
+  Q('lec-setup').style.display  = 'block';
+  Q('lec-active').style.display = 'none';
+  Q('qr-box').innerHTML         = '';
+  Q('l-blk-wrap').style.display = 'none';
+  Q('l-code').value             = '';
+  Q('l-course').value           = '';
+  A.locOn = false;
+  Q('loc-tog').classList.remove('on');
+  Q('radius-row').style.display = 'none';
+}
+
+
+/* ═══════════════════════════════════════════════
+   LOCATION TOGGLE
+═══════════════════════════════════════════════ */
+function toggleLoc() {
+  A.locOn = !A.locOn;
+  Q('loc-tog').classList.toggle('on', A.locOn);
+  Q('radius-row').style.display = A.locOn ? 'block' : 'none';
+}
+
+
+/* ═══════════════════════════════════════════════
+   SESSION MANAGEMENT
+═══════════════════════════════════════════════ */
+function startSession() {
+  const code    = Q('l-code').value.trim().toUpperCase();
+  const course  = Q('l-course').value.trim();
+  const lecName = Q('l-lec-name').value.trim();
+  const mins    = +Q('l-dur').value;
+
+  [['l-code',code],['l-course',course]].forEach(([id,v]) => {
+    Q(id).classList.toggle('err', !v);
+  });
+  if (!code||!course) return;
+
+  btnLoading('gen-btn', true);
+
+  if (A.locOn && navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      p => buildSession(p.coords.latitude, p.coords.longitude, code, course, lecName, mins),
+      () => buildSession(null, null, code, course, lecName, mins),
+      {timeout:8000, maximumAge:60000}
+    );
+  } else {
+    buildSession(null, null, code, course, lecName, mins);
+  }
+}
+
+async function buildSession(lat, lng, code, course, lecName, mins) {
+  try {
+    const token  = makeToken();
+    const radius = A.locOn ? +Q('l-radius').value : null;
+    const date   = todayStr();
+
+    A.session = {
+      id:             token.slice(0,10),
+      token,
+      code, course,
+      lecturer:       lecName,
+      lecId:          A.lec?.lecId || 'N/A',
+      lecFirebaseId:  A.lec?.id   || '',
+      date,
+      expiresAt:      Date.now() + mins*60000,
+      mins,
+      lat:            lat||null,
+      lng:            lng||null,
+      radius:         radius||null,
+      createdAt:      Date.now(),
+      active:         true,
+    };
+
+    await DB.saveSession(A.session);
+
+    // Update session info panel
+    Q('l-si-code').textContent   = code;
+    Q('l-si-course').textContent = course;
+    Q('l-si-lec').textContent    = lecName;
+    Q('l-si-date').textContent   = date;
+    Q('l-si-lecid').textContent  = A.lec?.lecId || '—';
+    Q('l-si-id').textContent     = A.session.id;
+    Q('l-si-dur').textContent    = fmtDur(mins);
+
+    Q('sec-pills').innerHTML = [
+      {label:'1 device/sign-in', on:true},
+      {label:'Unique Student ID',on:true},
+      {label:'Location fence',   on:A.locOn},
+      {label:'Time-limited QR',  on:true},
+    ].map(p=>`<span class="spill ${p.on?'on':'off'}">${p.on?'✓':'–'} ${p.label}</span>`).join('');
+
+    const lc = Q('l-loc-card');
+    if (A.locOn && lat) {
+      lc.className = 'strip teal';
+      Q('l-lfc-title').textContent  = `Location fence — within ${radius}m`;
+      Q('l-lfc-detail').textContent = `Anchor: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    } else {
+      lc.className = 'strip gray';
+      Q('l-lfc-title').textContent  = 'Location check disabled';
+      Q('l-lfc-detail').textContent = '';
+    }
+
+    // Build QR — session data embedded in URL (works on any device, offline)
+    Q('qr-box').innerHTML = '';
+    Q('qr-box').style.opacity = '1';
+    const payload = b64e(JSON.stringify({
+      id:       A.session.id,
+      token:    A.session.token,
+      code, course, date,
+      expiresAt:A.session.expiresAt,
+      lat:      lat||null,
+      lng:      lng||null,
+      radius:   radius||null,
+    }));
+    const qrUrl = `${location.origin}${location.pathname}?ci=${payload}`;
+    new QRCode(Q('qr-box'), {
+      text:         qrUrl,
+      width:        220,
+      height:       220,
+      colorDark:    '#1a1a18',
+      colorLight:   '#ffffff',
+      correctLevel: QRCode.CorrectLevel.M,
+    });
+
+    Q('lec-setup').style.display  = 'none';
+    Q('lec-active').style.display = 'block';
+    Q('csv-btn').style.display    = 'none'; // show once session ends
+    btnLoading('gen-btn',false,'Generate QR code');
+
+    // ── Attach real-time listeners (this is what drives live updates) ──
+    stopTimers();
+    A.fbUnsubRec = DB.listenRecords(A.session.id, recs => {
+      renderLiveAtt(recs);
+      if (recs.length > 0) Q('csv-btn').style.display = 'inline-block';
+    });
+    A.fbUnsubBlk = DB.listenBlocked(A.session.id, renderLiveBlk);
+
+    // Countdown ticker
+    lecTick();
+    A.tickTimer = setInterval(lecTick, 1000);
+
+  } catch(e) {
+    btnLoading('gen-btn',false,'Generate QR code');
+    alert('Error creating session: '+(e.message||e));
+  }
+}
+
+function stopTimers() {
+  clearInterval(A.tickTimer); A.tickTimer = null;
+  clearInterval(A.pollTimer); A.pollTimer = null;
+  if (A.fbUnsubRec) { A.fbUnsubRec(); A.fbUnsubRec = null; }
+  if (A.fbUnsubBlk) { A.fbUnsubBlk(); A.fbUnsubBlk = null; }
+}
+
+function lecTick() {
+  if (!A.session) return;
+  const rem = Math.max(0, A.session.expiresAt - Date.now());
+  const el  = Q('l-cd');
+  if (rem === 0) {
+    el.textContent='Session expired'; el.className='countdown exp';
+    Q('qr-box').style.opacity='0.3';
+    clearInterval(A.tickTimer);
+    markEnded(); return;
+  }
+  const h=Math.floor(rem/3600000), m=Math.floor((rem%3600000)/60000), s=Math.floor((rem%60000)/1000);
+  el.textContent = `Expires in ${h>0 ? h+'h '+pad(m)+'m '+pad(s)+'s' : m+':'+pad(s)}`;
+  el.className = 'countdown '+(rem<180000?'warn':'ok');
+}
+
+function renderLiveAtt(records) {
+  if (!Array.isArray(records)) records = [];
+  Q('l-att-count').textContent = records.length;
+  Q('l-att-list').innerHTML = records.length
+    ? records.map(r=>`
+        <div class="att-item">
+          <div class="att-dot"></div>
+          <span class="att-name">${esc(r.name)}</span>
+          <span class="att-sid">${esc(r.sid)}</span>
+          <span class="pill gray" title="Device: ${esc(r.fp)}">📱 ${esc(r.fp)}</span>
+          ${r.locNote?`<span class="pill green">📍 ${esc(r.locNote)}</span>`:''}
+          <span class="att-time">${esc(r.time)}</span>
+        </div>`).join('')
+    : '<div class="att-empty">Waiting for students to check in…</div>';
+}
+
+function renderLiveBlk(blocked) {
+  if (!Array.isArray(blocked)) blocked = [];
+  const w = Q('l-blk-wrap');
+  if (!blocked.length) { w.style.display='none'; return; }
+  w.style.display = 'block';
+  Q('l-blk-count').textContent = blocked.length;
+  Q('l-blk-list').innerHTML = blocked.map(b=>`
+    <div class="blk-item">
+      <span><strong>${esc(b.name)}</strong> (${esc(b.sid)}) — ${esc(b.reason)}</span>
+      <span style="color:#aaa;white-space:nowrap">${esc(b.time)}</span>
+    </div>`).join('');
+}
+
+async function markEnded() {
+  if (!A.session) return;
+  A.session.active = false;
+  await DB.updateSession(A.session.id, {active:false, endedAt:Date.now()});
+  const records = await DB.getRecords(A.session.id);
+  const blocked = await DB.getBlocked(A.session.id);
+  await DB.saveBackup(A.session, records, blocked);
+}
+
+async function endSession() {
+  if (!confirm('End this session and save all records?')) return;
+  stopTimers();
+  await markEnded();
+  A.session = null;
+  Q('lec-active').style.display = 'none';
+  Q('lec-setup').style.display  = 'block';
+  Q('qr-box').innerHTML = '';
+  Q('l-blk-wrap').style.display = 'none';
+}
+
+function downloadQR() {
+  const canvas = Q('qr-box').querySelector('canvas');
+  const img    = Q('qr-box').querySelector('img');
+  const a = document.createElement('a');
+  if (canvas) {
+    a.href = canvas.toDataURL('image/png');
+  } else if (img) {
+    a.href = img.src;
+  } else { alert('QR not ready yet.'); return; }
+  a.download = `QR_${A.session?.code||'code'}_${A.session?.date||''}.png`;
+  a.click();
+}
+
+
+/* ═══════════════════════════════════════════════
+   LECTURER TABS
+═══════════════════════════════════════════════ */
+const LEC_TABS = { records:renderRecords, combined:renderCombined };
+function lecTab(name) {
+  document.querySelectorAll('#view-lecturer .tab').forEach(t=>
+    t.classList.toggle('active', t.textContent.trim().toLowerCase().replace(/\s+/g,'')===name.replace(/\s+/g,'')));
+  document.querySelectorAll('#view-lecturer .tab-page').forEach(p=>
+    p.classList.toggle('active', p.id==='lec-pg-'+name));
+  if (LEC_TABS[name]) LEC_TABS[name]();
+}
+
+async function renderRecords() {
+  const el = Q('records-list');
+  el.innerHTML = '<div class="att-empty">Loading…</div>';
+  const sessions = (await DB.getMyLecSessions(A.lec?.id||''))
+    .filter(s=>!s.deletedByLec)
+    .sort((a,b)=>b.createdAt-a.createdAt);
+  if (!sessions.length) { el.innerHTML='<div class="no-rec">No completed sessions yet.</div>'; return; }
+  const parts = await Promise.all(sessions.map(async s=>{
+    const recs = await DB.getRecords(s.id);
+    const sp = s.active?'<span class="pill blue">active</span>':'<span class="pill gray">ended</span>';
+    const rows = recs.map(r=>`<div class="rec-row"><span class="rec-name">${esc(r.name)}</span><span class="rec-sid">${esc(r.sid)}</span>${r.locNote?`<span class="pill green" style="font-size:11px">📍${esc(r.locNote)}</span>`:''}<span class="rec-time">${esc(r.time)}</span></div>`).join('') || '<div style="font-size:13px;color:#aaa;padding:7px 0">No records</div>';
+    return `<div class="sess-card"><div class="sc-hdr"><div><div class="sc-title">${esc(s.code)} — ${esc(s.course)} ${sp}</div><div class="sc-meta">${esc(s.date)} · ${recs.length} present · ID: ${esc(s.id)}</div></div><div class="sc-actions"><button class="btn btn-secondary btn-sm" onclick="exportSessionCSV('${s.id}')">CSV</button><button class="btn btn-danger btn-sm" onclick="deleteSessRec('${s.id}')">Delete</button></div></div>${rows}</div>`;
+  }));
+  el.innerHTML = parts.join('');
+}
+
+async function deleteSessRec(id) {
+  if (!confirm('Delete from your view? The admin backup is preserved.')) return;
+  await DB.updateSession(id, {deletedByLec:true});
+  renderRecords();
+}
+
+async function exportSessionCSV(id) {
+  const sessions = await DB.getMyLecSessions(A.lec?.id||'');
+  const s = sessions.find(x=>x.id===id) || await DB.getSession(id);
+  if (!s) { alert('Session not found.'); return; }
+  const recs = await DB.getRecords(id), blk = await DB.getBlocked(id);
+  if (!recs.length) { alert('No records to export.'); return; }
+  const rows = [['Name','Student ID','Device FP','Location','Time','Course Code','Course','Lecturer','Lecturer ID','Date','Session ID']];
+  recs.forEach(r=>rows.push([r.name,r.sid,r.fp,r.locNote||'',r.time,s.code,s.course,s.lecturer,s.lecId,s.date,s.id]));
+  if (blk.length){rows.push([]);rows.push(['--- BLOCKED ---']);blk.forEach(b=>rows.push([b.name,b.sid,b.reason,b.time]));}
+  dlCSV(rows, `ATT_${s.code}_${s.date}_${s.id}`);
+}
+
+async function renderCombined() {
+  const el = Q('combined-list');
+  el.innerHTML = '<div class="att-empty">Loading…</div>';
+  const sessions = (await DB.getMyLecSessions(A.lec?.id||'')).filter(s=>!s.deletedByLec);
+  if (!sessions.length) { el.innerHTML='<div class="no-rec">No sessions yet.</div>'; return; }
+  const courses = {};
+  for (const s of sessions) {
+    if (!courses[s.code]) courses[s.code]={code:s.code,name:s.course,sessions:[]};
+    courses[s.code].sessions.push({...s, records:await DB.getRecords(s.id)});
+  }
+  el.innerHTML = Object.values(courses).map(c=>{
+    const total=c.sessions.reduce((n,s)=>n+s.records.length,0);
+    const rows=c.sessions.map(s=>`<div style="margin-bottom:10px"><div style="font-size:12px;font-weight:500;color:#666;margin-bottom:4px">${esc(s.date)} — ${s.records.length} present</div>${s.records.map(r=>`<div class="rec-row"><span class="rec-name">${esc(r.name)}</span><span class="rec-sid">${esc(r.sid)}</span><span class="rec-time">${esc(r.time)}</span></div>`).join('')||'<div style="font-size:12px;color:#aaa">No records</div>'}</div>`).join('');
+    return `<div class="sess-card"><div class="sc-hdr"><div><div class="sc-title">${esc(c.code)} — ${esc(c.name)}</div><div class="sc-meta">${c.sessions.length} sessions · ${total} total present</div></div><div class="sc-actions"><button class="btn btn-primary btn-sm" onclick="exportCourseCSV('${esc(c.code)}')">⬇ Master CSV</button></div></div>${rows}</div>`;
+  }).join('');
+}
+
+async function exportCourseCSV(code) {
+  const sessions=(await DB.getMyLecSessions(A.lec?.id||'')).filter(s=>s.code===code&&!s.deletedByLec);
+  const rows=[['Name','Student ID','Location','Time','Date','Session ID','Course Code','Course','Lecturer','Lecturer ID']];
+  for (const s of sessions) {
+    const recs=await DB.getRecords(s.id);
+    recs.length ? recs.forEach(r=>rows.push([r.name,r.sid,r.locNote||'',r.time,s.date,s.id,s.code,s.course,s.lecturer,s.lecId]))
+               : rows.push(['(no records)','','','',s.date,s.id,s.code,s.course,s.lecturer,s.lecId]);
+    rows.push([]);
+  }
+  dlCSV(rows,`MASTER_${code}_${A.lec?.lecId||''}`);
+}
+
+
+/* ═══════════════════════════════════════════════
+   ADMIN AUTH
+═══════════════════════════════════════════════ */
+function adminLogin() {
+  const pw = Q('al-pass').value;
+  clrAlert('al-alert');
+  if (pw === LS.adminPw()) {
+    A.isAdmin=true; A.isCoAdmin=false; A.coAdminName='';
+    Q('admin-role-lbl').textContent = 'Super Admin';
+    openAdmin(); return;
+  }
+  const ca = LS.coAdmins().find(c=>c.active && c.pwHash===hashPw(pw));
+  if (ca) {
+    A.isAdmin=false; A.isCoAdmin=true; A.coAdminName=ca.name;
+    Q('admin-role-lbl').textContent = 'Co-Admin: '+ca.name;
+    openAdmin(); return;
+  }
+  setAlert('al-alert','Incorrect password.');
+}
+function openAdmin() { goTo('admin'); renderAdminStats(); renderOTPs(); }
+function adminLogout() { A.isAdmin=false; A.isCoAdmin=false; goTo('landing'); }
+
+function changeAdminPw() {
+  const cur=Q('pw-cur').value, nw=Q('pw-new').value, nw2=Q('pw-new2').value;
+  clrAlert('pw-err'); clrAlert('pw-ok');
+  if (cur!==LS.adminPw()) return setAlert('pw-err','Current password is incorrect.');
+  if (nw.length<8) return setAlert('pw-err','New password must be at least 8 characters.');
+  if (nw!==nw2)    return setAlert('pw-err','New passwords do not match.');
+  LS.set('adminPw',nw);
+  setAlert('pw-ok','Password updated.','ok');
+  Q('pw-cur').value=''; Q('pw-new').value=''; Q('pw-new2').value='';
+}
+
+async function renderAdminStats() {
+  const lecs    = await DB.getLecturers();
+  const sessions= await DB.getAllSessions();
+  const otps    = LS.otps();
+  const activeOTPs = otps.filter(o=>o.status==='active'&&o.expiry>Date.now()).length;
+  Q('admin-stats').innerHTML = `
+    <strong>System overview</strong><br/>
+    Lecturers registered: <strong>${lecs.length}</strong> &nbsp;·&nbsp;
+    Total sessions: <strong>${sessions.length}</strong><br/>
+    OTPs active: <strong>${activeOTPs}</strong> &nbsp;·&nbsp;
+    OTPs used: <strong>${otps.filter(o=>o.status==='used').length}</strong>`;
+}
+
+async function resetAllData() {
+  if (!confirm('⚠ Delete ALL lecturers, sessions, backups and OTPs? This cannot be undone.')) return;
+  LS.saveLecturers([]); LS.saveSessions([]); LS.saveBackup({}); LS.saveOtps([]);
+  Object.keys(localStorage)
+    .filter(k=>['rec_','blk_','dev_','sid_'].some(p=>k.startsWith('qratt_'+p)))
+    .forEach(k=>localStorage.removeItem(k));
+  if (FB_READY) {
+    await fbDb.ref('lecturers').remove().catch(()=>{});
+    await fbDb.ref('sessions').remove().catch(()=>{});
+    await fbDb.ref('backup').remove().catch(()=>{});
+  }
+  alert('All data reset.');
+  renderAdminStats(); renderOTPs();
+}
+
+
+/* ═══════════════════════════════════════════════
+   ADMIN TABS
+═══════════════════════════════════════════════ */
+const ADMIN_RENDERS = {
+  otp:       ()=>{ renderOTPs(); renderAdminStats(); },
+  lecturers: renderLecturers,
+  backup:    renderBackups,
+  coadmins:  renderCoAdmins,
+  settings:  renderAdminStats,
+};
+function adminTab(name) {
+  document.querySelectorAll('#view-admin .tab').forEach(t=>
+    t.classList.toggle('active', t.textContent.trim().toLowerCase().replace(/[\s-]/g,'').startsWith(name.toLowerCase().replace(/[\s-]/g,''))));
+  document.querySelectorAll('#view-admin .tab-page').forEach(p=>
+    p.classList.toggle('active', p.id==='adm-pg-'+name));
+  if (ADMIN_RENDERS[name]) ADMIN_RENDERS[name]();
+}
+
+async function renderLecturers() {
+  const el = Q('lecturers-list');
+  el.innerHTML='<div class="att-empty">Loading…</div>';
+  const lecs = await DB.getLecturers().catch(()=>[]);
+  if (!lecs.length){el.innerHTML='<div class="no-rec">No lecturers registered yet.</div>';return;}
+  el.innerHTML = lecs.map(l=>`
+    <div class="att-item">
+      <div class="att-dot" style="background:#ba7517"></div>
+      <span class="att-name">${esc(l.name)}</span>
+      <span style="font-size:12px;font-family:monospace;color:#534ab7;font-weight:600">${esc(l.lecId)}</span>
+      <span class="att-sid">${esc(l.email)}</span>
+      <span class="pill gray">${esc(l.dept)}</span>
+      <span class="att-time">${new Date(l.createdAt).toLocaleDateString()}</span>
+      <button class="btn btn-danger btn-sm" onclick="removeLec('${l.id}','${esc(l.name)}','${esc(l.otpUsed||'')}')">Remove</button>
+    </div>`).join('');
+}
+
+async function removeLec(id, name, otpUsed) {
+  if (A.isCoAdmin) { reqApproval('removeLec',{id,name,otpUsed},`Remove lecturer ${name}`); return; }
+  if (!confirm(`Remove ${name}?`)) return;
+  await DB.deleteLec(id);
+  renderLecturers(); renderAdminStats();
+}
+
+async function renderBackups() {
+  const el  = Q('backup-list');
+  const all = await DB.getAllBackups().catch(()=>({}));
+  if (!Object.keys(all).length){el.innerHTML='<div class="no-rec">No backup data yet.</div>';return;}
+
+  const lecF    = Q('bk-lec')?.value    || 'all';
+  const courseF = Q('bk-course')?.value || 'all';
+
+  // Populate selects once
+  const lecSel = Q('bk-lec');
+  if (lecSel && lecSel.options.length===1) {
+    Object.keys(all).sort().forEach(lid=>{const o=document.createElement('option');o.value=lid;o.textContent=lid;lecSel.appendChild(o);});
+  }
+  const cSel = Q('bk-course');
+  if (cSel && cSel.options.length===1) {
+    const codes=new Set(); Object.values(all).forEach(ss=>Object.values(ss).forEach(d=>{if(d.session?.code)codes.add(d.session.code);}));
+    [...codes].sort().forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;cSel.appendChild(o);});
+  }
+
+  let html='';
+  for (const [lecId,sessions] of Object.entries(all)) {
+    if (lecF!=='all'&&lecF!==lecId) continue;
+    for (const [,data] of Object.entries(sessions)) {
+      const s=data.session||{}, rec=data.records||[];
+      if (courseF!=='all'&&courseF!==s.code) continue;
+      html+=`<div class="sess-card"><div class="sc-hdr"><div><div class="sc-title">${esc(s.code||'—')} — ${esc(s.course||'—')}</div><div class="sc-meta">Lecturer: ${esc(s.lecturer||'—')} (${esc(lecId)}) · ${esc(s.date||'—')} · ${rec.length} present · Backup: ${data.savedAt?new Date(data.savedAt).toLocaleDateString():'—'}</div></div><div class="sc-actions"><button class="btn btn-secondary btn-sm" onclick="exportBackupSess('${lecId}','${s.id||''}')">CSV</button></div></div>${rec.map(r=>`<div class="rec-row"><span class="rec-name">${esc(r.name)}</span><span class="rec-sid">${esc(r.sid)}</span><span class="rec-time">${esc(r.time)}</span></div>`).join('')||'<div style="font-size:13px;color:#aaa;padding:7px 0">No records</div>'}</div>`;
+    }
+  }
+  el.innerHTML = html || '<div class="no-rec">No matching backup entries.</div>';
+}
+
+async function exportBackupSess(lecId, sessionId) {
+  const all=await DB.getAllBackups().catch(()=>({})); const data=all[lecId]?.[sessionId];
+  if (!data){alert('Backup not found.');return;}
+  const s=data.session||{}, rec=data.records||[], blk=data.blocked||[];
+  const rows=[['Name','Student ID','Device FP','Location','Time','Course Code','Course','Lecturer','Lecturer ID','Date']];
+  rec.forEach(r=>rows.push([r.name,r.sid,r.fp||'',r.locNote||'',r.time,s.code,s.course,s.lecturer,s.lecId,s.date]));
+  if(blk.length){rows.push([]);rows.push(['--- BLOCKED ---']);blk.forEach(b=>rows.push([b.name,b.sid,b.reason,b.time]));}
+  dlCSV(rows,`BACKUP_${s.code}_${s.date}`);
+}
+
+async function exportBackupCSV() {
+  const all=await DB.getAllBackups().catch(()=>({}));
+  const lecF=Q('bk-lec')?.value||'all', courseF=Q('bk-course')?.value||'all';
+  const rows=[['Name','Student ID','Location','Time','Course Code','Course','Lecturer','Lecturer ID','Date','Session ID']];
+  for(const [lecId,sessions] of Object.entries(all)){
+    if(lecF!=='all'&&lecF!==lecId)continue;
+    for(const[,data] of Object.entries(sessions)){
+      const s=data.session||{};
+      if(courseF!=='all'&&courseF!==s.code)continue;
+      (data.records||[]).forEach(r=>rows.push([r.name,r.sid,r.locNote||'',r.time,s.code,s.course,s.lecturer,s.lecId,s.date,s.id]));
+    }
+  }
+  dlCSV(rows,`ADMIN_BACKUP_${todayStr()}`);
+}
+
+function renderCoAdmins() {
+  const list=LS.coAdmins(), pending=LS.pending(), el=Q('coadmins-list');
+  el.innerHTML = list.length
+    ? list.map(c=>`<div class="att-item"><div class="att-dot" style="background:#ba7517"></div><span class="att-name">${esc(c.name)}</span><span class="att-sid">${esc(c.email)}</span><span class="pill ${c.active?'green':'red'}">${c.active?'active':'suspended'}</span><span class="att-time">${new Date(c.createdAt).toLocaleDateString()}</span><button class="btn btn-secondary btn-sm" onclick="toggleCA('${c.id}')">${c.active?'Suspend':'Activate'}</button><button class="btn btn-danger btn-sm" onclick="removeCA('${c.id}')">Remove</button></div>`).join('')
+    : '<div class="no-rec">No co-admins yet.</div>';
+  const ps=Q('pending-section');
+  if (!pending.length){ps.style.display='none';return;}
+  ps.style.display='block';
+  Q('pending-count').textContent=pending.length;
+  Q('pending-list').innerHTML=pending.map(p=>`<div class="appr-item"><div class="appr-hdr"><span><strong>${esc(p.caName)}</strong> requests: <em>${esc(p.description)}</em></span><span style="color:#aaa;font-size:12px">${new Date(p.requestedAt).toLocaleTimeString()}</span></div><div class="appr-actions"><button class="btn btn-teal btn-sm" onclick="approveAction('${p.id}')">✓ Approve</button><button class="btn btn-danger btn-sm" onclick="denyAction('${p.id}')">✗ Deny</button></div></div>`).join('');
+}
+
+function addCoAdmin() {
+  const name=Q('ca-name').value.trim(), email=Q('ca-email').value.trim().toLowerCase(), pass=Q('ca-pass').value;
+  clrAlert('ca-alert');
+  if (!name||!email||!pass) return setAlert('ca-alert','All fields are required.');
+  if (pass.length<8) return setAlert('ca-alert','Password must be at least 8 characters.');
+  if (LS.coAdmins().find(c=>c.email===email)) return setAlert('ca-alert','A co-admin with this email already exists.');
+  LS.saveCoAdmins([...LS.coAdmins(), {id:makeToken().slice(0,8),name,email,pwHash:hashPw(pass),active:true,createdAt:new Date().toISOString()}]);
+  Q('ca-name').value='';Q('ca-email').value='';Q('ca-pass').value='';
+  setAlert('ca-alert',`Co-admin ${name} added.`,'ok');
+  renderCoAdmins();
+}
+
+function toggleCA(id){LS.saveCoAdmins(LS.coAdmins().map(c=>c.id===id?{...c,active:!c.active}:c));renderCoAdmins();}
+function removeCA(id){if(!confirm('Remove this co-admin?'))return;LS.saveCoAdmins(LS.coAdmins().filter(c=>c.id!==id));renderCoAdmins();}
+
+function reqApproval(action,data,description) {
+  LS.savePending([...LS.pending(),{id:makeToken().slice(0,8),action,data,description,caName:A.coAdminName,requestedAt:Date.now()}]);
+  alert(`Your request to "${description}" has been sent to the super admin for approval.`);
+}
+
+async function approveAction(id) {
+  const pending=LS.pending(), act=pending.find(p=>p.id===id);
+  if (!act) return;
+  if (act.action==='removeLec') await DB.deleteLec(act.data.id);
+  if (act.action==='revokeOTP') LS.saveOtps(LS.otps().map(o=>o.code===act.data.code?{...o,status:'revoked'}:o));
+  LS.savePending(pending.filter(p=>p.id!==id));
+  renderCoAdmins(); renderLecturers(); renderOTPs(); renderAdminStats();
+  alert(`Approved: "${act.description}"`);
+}
+function denyAction(id){LS.savePending(LS.pending().filter(p=>p.id!==id));renderCoAdmins();}
+
+
+/* ═══════════════════════════════════════════════
+   STUDENT CHECK-IN
+═══════════════════════════════════════════════ */
+function showStuState(state, title, msg) {
+  ['loading','invalid','done'].forEach(n=>Q('stu-'+n)?.classList.remove('show'));
+  if (Q('stu-form')) Q('stu-form').style.display='none';
+  if (state==='invalid'){
+    Q('stu-invalid').classList.add('show');
+    if (title) Q('inv-title').textContent=title;
+    if (msg)   Q('inv-msg').textContent=msg;
+  } else if (state==='done'){
+    Q('stu-done').classList.add('show');
+    if (msg) Q('done-msg').textContent=msg;
+    clearInterval(A.stuCdTimer); A.stuCdTimer=null;
+  }
+}
+
+async function initStuCheckin(ciParam) {
+  try {
+    const data = JSON.parse(b64d(decodeURIComponent(ciParam)));
+    Q('stu-loading').classList.remove('show');
+
+    if (!data?.id||!data?.token) {
+      showStuState('invalid','Invalid QR code','This QR code is malformed. Ask your lecturer for a new one.'); return;
+    }
+    if (Date.now()>data.expiresAt) {
+      showStuState('invalid','Session expired',`The sign-in window for ${data.code} has closed. Ask your lecturer for a fresh QR code.`); return;
+    }
+
+    A.stuSession = data;
+
+    // Check if device already signed in
+    if (await DB.isDeviceUsed(data.id, MY_FP)) {
+      const recs=await DB.getRecords(data.id);
+      const who=recs.find(r=>r.fp===MY_FP);
+      showStuState('done',null,`Your attendance for ${data.code} has already been recorded${who?' as '+who.name:''}.`);
+      return;
+    }
+
+    // Show form — course code + name + date ONLY (lecturer name hidden)
+    Q('s-code').textContent   = data.code;
+    Q('s-course').textContent = data.course;
+    Q('s-date').textContent   = data.date;
+    Q('s-fp').textContent     = MY_FP;
+    Q('stu-form').style.display = 'block';
+
+    if (data.lat!=null) {
+      Q('loc-btn-row').style.display = 'flex';
+      Q('no-loc-row').style.display  = 'none';
+      Q('ls-text').textContent = 'Location required — tap to get your location';
+    }
+
+    stuCdTick();
+    clearInterval(A.stuCdTimer);
+    A.stuCdTimer = setInterval(stuCdTick, 1000);
+
+  } catch(e) {
+    console.error(e);
+    Q('stu-loading').classList.remove('show');
+    showStuState('invalid','Could not read QR code','Please scan the QR code again or ask your lecturer for a new one.');
+  }
+}
+
+function stuCdTick() {
+  if (!A.stuSession) return;
+  const rem = Math.max(0, A.stuSession.expiresAt-Date.now());
+  const el  = Q('s-cd');
+  if (!el) return;
+  if (rem===0) {
+    el.textContent='Session expired'; el.className='countdown exp';
+    clearInterval(A.stuCdTimer); A.stuCdTimer=null;
+    showStuState('invalid','Session expired','The sign-in window has closed. Contact your lecturer.');
+    return;
+  }
+  const h=Math.floor(rem/3600000), m=Math.floor((rem%3600000)/60000), s=Math.floor((rem%60000)/1000);
+  el.textContent = h>0?`${h}h ${pad(m)}m ${pad(s)}s left`:`${m}:${pad(s)} left`;
+  el.className = 'countdown '+(rem<180000?'warn':'ok');
+}
+
+function getStudentLoc() {
+  setLS('busy','Fetching your location…');
+  if (!navigator.geolocation) { simLoc(); return; }
+  navigator.geolocation.getCurrentPosition(
+    p=>{A.stuLat=p.coords.latitude;A.stuLng=p.coords.longitude;setLS('ok',`Location acquired: ${A.stuLat.toFixed(5)}, ${A.stuLng.toFixed(5)}`);},
+    ()=>simLoc(), {timeout:8000,maximumAge:30000}
+  );
+}
+function simLoc() {
+  const inside=Math.random()>0.3;
+  const base=A.stuSession?.lat?[A.stuSession.lat,A.stuSession.lng]:[5.6505,-0.1875];
+  const d=inside?0.0004:0.0035;
+  A.stuLat=base[0]+(Math.random()-.5)*d*2; A.stuLng=base[1]+(Math.random()-.5)*d*2;
+  setLS('ok',`Location acquired: ${A.stuLat.toFixed(5)}, ${A.stuLng.toFixed(5)}`);
+}
+function setLS(cls,msg){const b=Q('ls-box');if(!b)return;b.className='loc-status '+cls;Q('ls-text').textContent=msg;}
+
+async function checkIn() {
+  const nameEl=Q('s-name'), sidEl=Q('s-sid');
+  const name=nameEl.value.trim(), sid=sidEl.value.trim();
+  nameEl.classList.remove('err'); sidEl.classList.remove('err');
+  Q('res-ok').classList.remove('show'); Q('res-err').classList.remove('show');
+
+  if (!name){nameEl.classList.add('err');showStuErr('Please enter your full name.');return;}
+  if (!sid) {sidEl.classList.add('err'); showStuErr('Student ID is required.'); return;}
+  if (!A.stuSession){showStuErr('No session loaded. Please scan the QR code again.');return;}
+  if (Date.now()>A.stuSession.expiresAt){showStuErr('This session has expired. Ask your lecturer for a new QR code.');return;}
+
+  // Disable button
+  ['ci-btn','ci-btn-loc'].forEach(id=>{const b=Q(id);if(b){b.disabled=true;b.innerHTML='<span class="spin"></span>Checking in…';}});
+
+  const id=A.stuSession.id, normSid=sid.toUpperCase().trim();
+  try {
+    // Duplicate device
+    if (await DB.isDeviceUsed(id,MY_FP)) {
+      const who=(await DB.getRecords(id)).find(r=>r.fp===MY_FP);
+      await DB.pushBlocked(id,{name,sid,reason:`Device already used by ${who?who.name:'another student'}`,time:nowTime()});
+      showStuErr(`This device has already been used to check in${who?' by '+who.name:''}. One device per session.`);
+      resetCiBtn(); return;
+    }
+    // Duplicate student ID
+    if (await DB.isSidUsed(id,normSid)) {
+      const who=(await DB.getRecords(id)).find(r=>r.sid.toUpperCase()===normSid);
+      await DB.pushBlocked(id,{name,sid,reason:`Student ID used by ${who?who.name:'another'}`,time:nowTime()});
+      sidEl.classList.add('err');
+      showStuErr(`Student ID "${sid}" is already registered${who?' under '+who.name:''}. Each ID may only be used once.`);
+      resetCiBtn(); return;
+    }
+    // Duplicate name
+    const existing=await DB.getRecords(id);
+    if (existing.find(r=>r.name.toLowerCase()===name.toLowerCase())) {
+      await DB.pushBlocked(id,{name,sid,reason:'Name already checked in',time:nowTime()});
+      showStuErr(`${name} has already checked in for this session.`); resetCiBtn(); return;
+    }
+    // Location
+    let locNote='';
+    if (A.stuSession.lat!=null) {
+      if (A.stuLat===null){showStuErr('Location required — tap "Get my location" first.');resetCiBtn();return;}
+      const dist=haversine(A.stuLat,A.stuLng,A.stuSession.lat,A.stuSession.lng);
+      if (dist>A.stuSession.radius) {
+        await DB.pushBlocked(id,{name,sid,reason:`Too far — ${dist}m (limit ${A.stuSession.radius}m)`,time:nowTime()});
+        showStuErr(`You are ${dist}m from the classroom. Must be within ${A.stuSession.radius}m.`);
+        resetCiBtn(); return;
+      }
+      locNote=`${dist}m`;
+    }
+
+    // ── SUCCESS ──
+    await DB.addDevice(id,MY_FP);
+    await DB.addSid(id,normSid);
+    await DB.pushRecord(id,{name,sid,fp:MY_FP,time:nowTime(),locNote});
+    showStuState('done',null,`Attendance for ${A.stuSession.code} — ${A.stuSession.course} on ${A.stuSession.date} recorded successfully.`);
+
+  } catch(e) {
+    showStuErr('An error occurred. Please try again. ('+(e.message||e)+')');
+    resetCiBtn();
+  }
+}
+
+function resetCiBtn(){['ci-btn','ci-btn-loc'].forEach(id=>{const b=Q(id);if(b){b.disabled=false;b.textContent='Check in';}});}
+function showStuErr(msg){const el=Q('res-err');el.innerHTML=`<strong>✗ Check-in failed</strong><br>${esc(msg)}`;el.classList.add('show');}
+
+
+/* ═══════════════════════════════════════════════
+   UTILITIES
+═══════════════════════════════════════════════ */
+function Q(id)         { return document.getElementById(id); }
+function esc(s)        { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function pad(n)        { return String(n).padStart(2,'0'); }
+function makeToken()   { return Array.from(crypto.getRandomValues(new Uint8Array(10))).map(b=>b.toString(36)).join('').toUpperCase().slice(0,12); }
+function fmtDur(m)     { if(m<60)return m+' min'; const h=Math.floor(m/60),r=m%60; return r?`${h}h ${r}min`:`${h}h`; }
+function todayStr()    { return new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
+function nowTime()     { return new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+function hashPw(pw)    { let h=0x811c9dc5; for(let i=0;i<pw.length;i++){h^=pw.charCodeAt(i);h=Math.imul(h,0x01000193)>>>0;} return h.toString(16).padStart(8,'0'); }
+function haversine(a,b,c,d){ const R=6371000,dL=(c-a)*Math.PI/180,dG=(d-b)*Math.PI/180,x=Math.sin(dL/2)**2+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dG/2)**2; return Math.round(R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x))); }
+function b64e(s)       { return btoa(unescape(encodeURIComponent(s))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,''); }
+function b64d(s)       { s=s.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4)s+='='; return decodeURIComponent(escape(atob(s))); }
+function toggleEye(id,btn) { const el=Q(id); if(!el)return; el.type=el.type==='password'?'text':'password'; btn.textContent=el.type==='password'?'👁':'🙈'; }
+function setAlert(id,msg,type='err') { const el=Q(id); if(!el)return; el.textContent=msg; el.className=`alert ${type} show`; }
+function clrAlert(id)  { const el=Q(id); if(el)el.className='alert'; }
+function btnLoading(id,on,label) { const b=Q(id); if(!b)return; b.disabled=on; b.innerHTML=on?'<span class="spin"></span>Please wait…':label||b.dataset.orig||b.textContent; if(!on&&label)b.dataset.orig=label; }
+function dlCSV(rows,name) { const csv=rows.map(r=>r.map(v=>`"${String(v||'').replace(/"/g,'""')}"`).join(',')).join('\n'); const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})); a.download=name.replace(/[^a-zA-Z0-9_-]/g,'_')+'.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); }
+
+/* ─── Device fingerprint ─── */
+const MY_FP = (()=>{
+  const raw=[navigator.userAgent,navigator.language,screen.width+'x'+screen.height+'x'+screen.colorDepth,Intl.DateTimeFormat().resolvedOptions().timeZone,navigator.hardwareConcurrency||0,navigator.platform||'',navigator.vendor||''].join('||');
+  let h=0x811c9dc5; for(let i=0;i<raw.length;i++){h^=raw.charCodeAt(i);h=Math.imul(h,0x01000193)>>>0;} return h.toString(16).toUpperCase().padStart(8,'0');
+})();
+
+
+/* ═══════════════════════════════════════════════
+   BOOT
+═══════════════════════════════════════════════ */
+window.addEventListener('DOMContentLoaded', async () => {
+  // Service worker
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+
+  // Online / offline
+  window.addEventListener('online',  ()=>{Q('offline-bar').classList.remove('show'); processQueue();});
+  window.addEventListener('offline', ()=>Q('offline-bar').classList.add('show'));
+  if (!navigator.onLine) Q('offline-bar').classList.add('show');
+
+  // Demo mode warning
+  if (!FB_READY) Q('demo-bar').classList.add('show');
+
+  // QR check-in route
+  const params = new URLSearchParams(location.search);
+  const ci     = params.get('ci');
+  if (ci) { goTo('stu-checkin'); await initStuCheckin(ci); return; }
+
+  // Restore lecturer session
+  const savedEmail = sessionStorage.getItem('qratt_lec');
+  if (savedEmail) {
+    const lec = await DB.getLecByEmail(savedEmail).catch(()=>null);
+    if (lec) { await activateLec(lec); return; }
+  }
+
+  goTo('landing');
+});
+
+function goTo(view) {
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  const el=Q('view-'+view); if(el)el.classList.add('active'); window.scrollTo(0,0);
+}
+  </script>
+</body>
+</html>
